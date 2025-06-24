@@ -1,0 +1,4 @@
+SPARQLWrapper==2.0.0
+RapidFuzz==3.13.0
+requests==2.32.4
+python-dotenv==1.1.0
