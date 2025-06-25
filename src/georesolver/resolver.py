@@ -110,7 +110,7 @@ class TGNQuery:
             logger.error(f"Error fetching coordinates via JSON for {tgn_uri}: {e}")
             return (None, None)
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
         if not results:
             return (None, None)
         
@@ -184,7 +184,7 @@ class WHGQuery:
             return {"features": []}
 
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
 
         logger.info(f"Finding best match for '{place_name}' in WHG results")
 
@@ -287,7 +287,7 @@ class GeonamesQuery:
             logger.error(f"Error querying Geonames for '{place_name}': {str(e)}")
             return {"geonames": []}
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
         """
         Get the best matching place from the results based on name similarity.
         
@@ -397,7 +397,7 @@ class WikidataQuery:
 
         return enriched_results
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
         if not results:
             return (None, None)
 
@@ -444,9 +444,11 @@ class PlaceResolver:
     A unified resolver that queries multiple geolocation services in order
     and returns the first match with valid coordinates.
     """
-    def __init__(self, services: list, places_map_json: str = "data/mappings/places_map.json"):
+    def __init__(self, services: list, places_map_json: str = "data/mappings/places_map.json",
+                 threshold: float = 90):
         self.services = services
         self.places_map = self._load_places_map(places_map_json)
+        self.threshold = threshold
 
     def _load_places_map(self, json_file: str) -> dict:
         try:
@@ -492,7 +494,7 @@ class PlaceResolver:
                         )
 
                 results = service.places_by_name(place_name, country_code, resolved_type)
-                coords = service.get_best_match(results, place_name)
+                coords = service.get_best_match(results, place_name, fuzzy_threshold=self.threshold)
                 if coords != (None, None):
                     logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {coords}")
                     return coords
