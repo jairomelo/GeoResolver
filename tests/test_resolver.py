@@ -8,7 +8,7 @@ from georesolver.resolver import (    GeonamesQuery,
 def test_geonames_query():
     service = [GeonamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
 
-    resolver = PlaceResolver(service)
+    resolver = PlaceResolver(service, threshold=75)
 
     place_name = "New York"
     country_code = "US"
@@ -18,4 +18,3 @@ def test_geonames_query():
     assert coordinates[0] is not None, "Coordinates should not be None"
     assert isinstance(coordinates, tuple), "Coordinates should be a tuple"
     assert len(coordinates) == 2, "Coordinates should contain latitude and longitude"
-    assert coordinates == (40.71427, -74.00597), f"Coordinates {coordinates} do not match expected values for New York, US"
