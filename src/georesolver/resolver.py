@@ -479,20 +479,3 @@ class PlaceResolver:
         logger.warning(f"Could not resolve '{place_name}' via any service.")
         return (None, None)
 
-
-if __name__ == "__main__":
-    # use example
-    services = [
-        TGNQuery("http://vocab.getty.edu/sparql"),
-        HGISQuery("https://whgazetteer.org/api"),
-        GeonamesQuery("http://api.geonames.org"),
-        WikidataQuery("https://www.wikidata.org/w/api.php")
-    ]
-    
-    resolver = PlaceResolver(services)
-    place_name = "Cuicatlán"
-    country_code = "MX"
-    place_type = "pueblo"
-    
-    coordinates = resolver.resolve(place_name, country_code, place_type)
-    print("Resolved coordinates:", coordinates)
