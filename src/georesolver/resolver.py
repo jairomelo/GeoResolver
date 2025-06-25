@@ -127,7 +127,7 @@ class TGNQuery:
         
         return (None, None)
 
-class HGISQuery:
+class WHGQuery:
     """
     A class to interact with the World Historical Gazetteer (WHG) API.
 
@@ -136,39 +136,41 @@ class HGISQuery:
     and includes functionality to find the best matching place from multiple results.
 
     Attributes:
-        collection (str): The WHG collection to search in (default: 'lugares13k_rel')
         endpoint (str): The base URL for the WHG API
         search_domain (str): The API endpoint path for searches. Default is "/index"
+        collection (str): The WHG collection to search in (default: "")
 
     Example:
-        >>> hgis = HGISQuery("https://whgazetteer.org/api")
-        >>> results = hgis.places_by_name("Cuicatlán", ccode="MX", fclass="p")
-        >>> coordinates = hgis.get_best_match(results, placetype="pueblo", ccode="MX")
+        >>> whg = WHGQuery("https://whgazetteer.org/api")
+        >>> results = whg.places_by_name("Cuicatlán", country_code="MX", place_type="p")
+        >>> coordinates = whg.get_best_match(results, place_type="pueblo", country_code="MX")
     """
-    def __init__(self, endpoint: str = config["apis"]["hgis_endpoint"], search_domain: str = "/index"):
+    def __init__(self, endpoint: str = config["apis"]["whg_endpoint"], search_domain: str = "/index", collection: str = ""):
         if not endpoint or not isinstance(endpoint, str):
             raise ValueError("Endpoint must be a non-empty string")
-        self.collection = "lugares13k_rel"
+        self.collection = collection
         self.endpoint = endpoint.rstrip("/")
         self.search_domain = search_domain
 
-    def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> dict:
+    def places_by_name(self, place_name: str, country_code: str, place_type: str = "p") -> dict:
         """
         Search for place using the World Historical Gazetteer API https://docs.whgazetteer.org/content/400-Technical.html#api
         
         Parameters:
             place_name (str): Any string with the name of the place. This keyword includes place names variants.
-            ccode (str): ISO 3166-1 alpha-2 country code.
-            fclass (str): Feature class according to Linked Places Format. Default is 'p' for place. Look at https://github.com/LinkedPasts/linked-places-format for more places classes.         
+            country_code (str): ISO 3166-1 alpha-2 country code.
+            place_type (str): Feature class according to Linked Places Format. Default is 'p' for place. Look at https://github.com/LinkedPasts/linked-places-format for more places classes.
         """
         
         if not place_name or not isinstance(place_name, str):
             raise ValueError("place_name must be a non-empty string")
         if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
             raise ValueError("country_code must be a valid 2-letter country code")
+        if not place_type:
+            logger.warning("place_type should be a string, defaulting to 'p' for place type.")
+            place_type = "p"
 
-
-        url = f"{self.endpoint}{self.search_domain}/?name={place_name}&dataset={self.collection}&ccodes={country_code}&fclass={place_type}"
+        url = f"{self.endpoint}{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.collection}"
 
         try:
             response = requests.get(url)
@@ -182,7 +184,9 @@ class HGISQuery:
             return {"features": []}
 
 
-    def get_best_match(self, results: dict, placetype: Union[str, None] = None, ccode: Union[str, None] = None) -> tuple:
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
+
+        logger.info(f"Finding best match for '{place_name}' in WHG results")
 
         try:
             if len(results["features"]) == 0:
@@ -193,12 +197,23 @@ class HGISQuery:
                 return coordinates[1], coordinates[0]
 
             for r in results["features"]:
-                placetypes = r.get("properties", {}).get("placetypes", [])
-                ccodes = r.get("properties", {}).get("ccodes", [])
-                if placetype and ccode:
-                    if placetype.capitalize() in placetypes and ccode in ccodes:
-                        coordinates = r["geometry"]["coordinates"]
-                        return coordinates[1], coordinates[0]
+                name = r.get("properties", {}).get("title", "")
+                if not name:
+                    continue
+                
+                ratio = fuzz.ratio(name.lower(), place_name.lower())
+                logger.info(f"Comparing '{name}' with '{place_name}': {ratio}% similarity")
+                if ratio >= fuzzy_threshold:
+                    geometry = r.get("geometry", {})
+                    if geometry.get("type") == "GeometryCollection":
+                        logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first point.")
+
+                        coordinates = geometry.get("geometries", [{}])[0].get("coordinates")
+                    else:
+                        coordinates = geometry.get("coordinates")
+                    if coordinates and len(coordinates) == 2:
+                        logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
+                        return coordinates[0], coordinates[1]
 
             return (None, None)
         
@@ -264,7 +279,7 @@ class GeonamesQuery:
             logger.error(f"Error querying Geonames for '{place_name}': {str(e)}")
             return {"geonames": []}
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 75) -> tuple:
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
         """
         Get the best matching place from the results based on name similarity.
         
@@ -374,7 +389,7 @@ class WikidataQuery:
 
         return enriched_results
 
-    def get_best_match(self, results: list, place_name: str, fuzzy_threshold: float = 75) -> tuple:
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
         if not results:
             return (None, None)
 
