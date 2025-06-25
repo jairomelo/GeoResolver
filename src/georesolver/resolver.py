@@ -221,7 +221,7 @@ class WHGQuery:
                         coordinates = geometry.get("coordinates")
                     if coordinates and len(coordinates) == 2:
                         logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
-                        return coordinates[0], coordinates[1]
+                        return coordinates[1], coordinates[0] # Return (lat, lon). For some reason WHG returns (lon, lat) in coordinates
 
             return (None, None)
         
