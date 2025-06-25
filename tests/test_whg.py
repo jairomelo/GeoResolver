@@ -1,16 +1,16 @@
-from georesolver.resolver import TGNQuery, PlaceResolver
+from georesolver.resolver import WHGQuery, PlaceResolver
 
-def test_tgn_query():
-    service = [TGNQuery(lang="en")]
+def test_whg_query():
+    service = [WHGQuery()]
 
     resolver = PlaceResolver(services=service)
 
-    place_name = "Aucará"
-    country_code = "PE"
+    place_name = "Cuicatlán"
+    country_code = "MX"
     place_type = None
 
     coordinates = resolver.resolve(place_name, country_code, place_type, use_default_filter=True)
     assert coordinates[0] is not None, "Coordinates should not be None"
     assert len(coordinates) == 2, "Coordinates should contain latitude and longitude"
-    assert coordinates == (-14.25, -74.0833), "Coordinates do not match expected values for Aucará, Peru"
+    assert coordinates == (-96.959444444, 17.802777777), "Coordinates do not match expected values for Cuicatlán, Mexico"
 
