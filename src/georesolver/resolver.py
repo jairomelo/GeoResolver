@@ -298,109 +298,115 @@ class GeonamesQuery:
 
 class WikidataQuery:
     """
-    A class to interact with the Wikidata API for geographic coordinates lookup.
-    
-    This class provides methods to search and retrieve geographic coordinates for places
-    using the Wikidata API. It supports filtering by country and place type.
-
-    Attributes:
-        endpoint (str): The base URL for the Wikidata API
+    A class to interact with the Wikidata MediaWiki API for geographic coordinates lookup.
     """
-    def __init__(self, endpoint: str = config["apis"]["wikidata_endpoint"]):
-        self.endpoint = endpoint
 
-    def places_by_name(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None) -> dict:
+    def __init__(self, search_endpoint="https://www.wikidata.org/w/api.php", entitydata_endpoint="https://www.wikidata.org/wiki/Special:EntityData/"):
+        self.search_endpoint = search_endpoint
+        self.entitydata_endpoint = entitydata_endpoint
+
+    def places_by_name(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None) -> list:
         """
-        Search for places using the Wikidata API.
-        
-        Parameters:
-            place_name (str): Name of the place to search for
-            country_code (str): Optional ISO 3166-1 alpha-2 country code
-            place_type (str): Optional type of place (e.g., 'pueblo', 'city', 'village', 'municipality')
+        Search for entities using the Wikidata API.
         """
-        # Map common place types to Wikidata Q-numbers
         place_type_map = json.load(open("data/mappings/wikidata_place_map.json"))
-
         place_type_id = place_type_map.get(place_type.lower()) if place_type else None
-        
-        query = f"""
-        SELECT DISTINCT ?place ?placeLabel ?coordinates WHERE {{
-          ?place rdfs:label ?placeLabel;
-                 wdt:P625 ?coordinates.
-          FILTER(REGEX(LCASE(?placeLabel), LCASE("{place_name}"), "i"))  # Changed to REGEX for partial matches
-          FILTER(LANG(?placeLabel) IN ("es", "en"))  # Accept both Spanish and English labels
-          {f'?place wdt:P17 ?country. ?country wdt:P297 "{country_code}".' if country_code else ''}
-          {f'?place wdt:P31/wdt:P279* wd:{place_type_id}.' if place_type_id else ''}
-        }}
-        LIMIT 10
-        """
+
+        params = {
+            "action": "wbsearchentities",
+            "search": place_name,
+            "language": "en",
+            "format": "json",
+            "type": "item",
+            "limit": 10
+        }
 
         try:
-            response = requests.get(
-                self.endpoint,
-                params={
-                    'format': 'json',
-                    'query': query
-                }
-            )
+            response = requests.get(self.search_endpoint, params=params, timeout=10)
             response.raise_for_status()
-            return response.json()
+            search_results = response.json().get("search", [])
         except Exception as e:
-            logger.error(f"Error querying Wikidata for '{place_name}': {str(e)}")
-            return {"results": {"bindings": []}}
+            traceback_str = traceback.format_exc()
+            logger.error(f"Error querying Wikidata search API for '{place_name}': {e} \n{traceback_str}")
+            return []
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 75) -> tuple:
-        """
-        Get the best matching place from the results based on name similarity.
-        
-        Parameters:
-            results (dict): Results from places_by_name query
-            place_name (str): Original place name to match against
-            fuzzy_threshold (float): Minimum similarity score (0-100) for a match
-        
-        Returns:
-            tuple: (latitude, longitude) or (None, None) if no match found
-        """
-        if not results.get("results", {}).get("bindings"):
+        enriched_results = []
+
+        for result in search_results:
+            qid = result.get("id")
+            label = result.get("label", "")
+
+            try:
+                data_url = f"{self.entitydata_endpoint}{qid}.json"
+                entity_response = requests.get(data_url, timeout=10)
+                entity_response.raise_for_status()
+                entity_data = entity_response.json()["entities"][qid]
+                claims = entity_data.get("claims", {})
+            except Exception as e:
+                logger.warning(f"Could not fetch entity data for {qid}: {e}")
+                continue
+
+            coords = self._extract_coordinates(claims)
+            if coords is None:
+                continue
+
+            # Country filter
+            if country_code and not self._match_country(claims, country_code):
+                continue
+
+            # Place type filter
+            if place_type_id and not self._match_place_type(claims, place_type_id):
+                continue
+
+            enriched_results.append({
+                "label": label,
+                "qid": qid,
+                "coordinates": coords
+            })
+
+        return enriched_results
+
+    def get_best_match(self, results: list, place_name: str, fuzzy_threshold: float = 75) -> tuple:
+        if not results:
             return (None, None)
 
-        bindings = results["results"]["bindings"]
-        if len(bindings) == 1:
-            coords = bindings[0].get("coordinates", {}).get("value", "")
-            return self._parse_coordinates(coords)
-
-        best_ratio = 0
+        best_score = 0
         best_coords = None
-        
-        for binding in bindings:
-            label = binding.get("placeLabel", {}).get("value", "")
-            coords = binding.get("coordinates", {}).get("value", "")
-            
-            partial_ratio = fuzz.partial_ratio(place_name.lower(), label.lower())
-            regular_ratio = fuzz.ratio(place_name.lower(), label.lower())
-            ratio = max(partial_ratio, regular_ratio)
-            
-            if ratio > best_ratio:
-                best_ratio = ratio
+
+        for result in results:
+            label = result["label"]
+            coords = result["coordinates"]
+            score = max(fuzz.ratio(label.lower(), place_name.lower()), fuzz.partial_ratio(label.lower(), place_name.lower()))
+
+            if score > best_score and score >= fuzzy_threshold:
+                best_score = score
                 best_coords = coords
-                logger.info(f"Found match: '{label}' with similarity {ratio}%")
+                logger.info(f"Found Wikidata match: '{label}' with score {score}%")
 
-        if best_ratio >= fuzzy_threshold and best_coords is not None:
-            return self._parse_coordinates(best_coords)
-        
-        return (None, None)
+        return best_coords if best_coords else (None, None)
 
-    def _parse_coordinates(self, coord_string: str) -> tuple:
-        """
-        Parse Wikidata coordinate string into (latitude, longitude) tuple.
-        """
+    def _extract_coordinates(self, claims) -> tuple:
         try:
-            coord_string = coord_string.replace("Point(", "").replace(")", "")
-            lon, lat = map(float, coord_string.split())
-            return (lat, lon)
-        except Exception as e:
-            logger.error(f"Error parsing coordinates '{coord_string}': {str(e)}")
+            coord_data = claims.get("P625", [])[0]["mainsnak"]["datavalue"]["value"]
+            return (coord_data["latitude"], coord_data["longitude"])
+        except Exception:
             return (None, None)
+
+    def _match_country(self, claims, iso_code: str) -> bool:
+        try:
+            country_entity = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
+            country_data = requests.get(f"https://www.wikidata.org/wiki/Special:EntityData/{country_entity}.json").json()
+            iso = country_data["entities"][country_entity]["claims"]["P297"][0]["mainsnak"]["datavalue"]["value"]
+            return iso.upper() == iso_code.upper()
+        except Exception:
+            return False
+
+    def _match_place_type(self, claims, expected_qid: str) -> bool:
+        try:
+            types = [c["mainsnak"]["datavalue"]["value"]["id"] for c in claims.get("P31", [])]
+            return expected_qid in types
+        except Exception:
+            return False
         
 class PlaceResolver:
     """
