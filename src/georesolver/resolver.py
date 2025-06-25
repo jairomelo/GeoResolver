@@ -8,6 +8,8 @@ import json
 import requests
 import ast
 from dotenv import load_dotenv
+from ratelimit import limits, sleep_and_retry
+
 from georesolver.utils.LoggerHandler import setup_logger
 
 logger = setup_logger("getCoordinates")
@@ -49,6 +51,8 @@ class TGNQuery:
         self.sparql.setReturnFormat(JSON)
         self.lang = lang
 
+    @sleep_and_retry
+    @limits(calls=5, period=1)  # TGN allows 5 calls per second
     def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> Union[dict, list]:
         """
         Search for places using the TGN SPARQL endpoint.
@@ -152,6 +156,8 @@ class WHGQuery:
         self.endpoint = endpoint.rstrip("/")
         self.search_domain = search_domain
 
+    @sleep_and_retry
+    @limits(calls=5, period=1)  # There's no official rate limit for WHG, but we set a conservative limit
     def places_by_name(self, place_name: str, country_code: str, place_type: str = "p") -> dict:
         """
         Search for place using the World Historical Gazetteer API https://docs.whgazetteer.org/content/400-Technical.html#api
@@ -251,6 +257,8 @@ class GeonamesQuery:
         if not self.username:
             raise ValueError("GEONAMES_USERNAME environment variable is required")
 
+    @sleep_and_retry
+    @limits(calls=30, period=1)  # Geonames allows 30 calls per second
     def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> dict:
         """
         Search for places using the Geonames API.
@@ -338,6 +346,8 @@ class WikidataQuery:
         self.search_endpoint = search_endpoint
         self.entitydata_endpoint = entitydata_endpoint
 
+    @sleep_and_retry
+    @limits(calls=30, period=1)  # Wikidata doesn't have a hard limit, but we set a conservative limit
     def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> list:
         """
         Search for entities using the Wikidata API.
