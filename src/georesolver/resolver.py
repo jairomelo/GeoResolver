@@ -206,9 +206,17 @@ class WHGQuery:
                 if ratio >= fuzzy_threshold:
                     geometry = r.get("geometry", {})
                     if geometry.get("type") == "GeometryCollection":
-                        logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first point.")
+                        logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first valid point.")
 
-                        coordinates = geometry.get("geometries", [{}])[0].get("coordinates")
+                        coordinates = None
+                        for geom in geometry.get("geometries", []):
+                            if geom.get("type") == "Point":
+                                coordinates = geom.get("coordinates")
+                                break
+                        if not coordinates:
+                            logger.warning(f"No valid Point found in GeometryCollection for '{place_name}'.")
+                            continue
+                        
                     else:
                         coordinates = geometry.get("coordinates")
                     if coordinates and len(coordinates) == 2:
