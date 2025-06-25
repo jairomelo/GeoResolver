@@ -17,6 +17,16 @@ config.read("conf/global.conf")
 
 load_dotenv(config["default"]["env_file"])
 
+class PlaceTypeMapper:
+    def __init__(self, mapping: dict):
+        self.mapping = mapping
+
+    def get_for_service(self, place_type, service) -> Union[str, None]:
+        try:
+            return self.mapping[place_type.lower()][service]
+        except KeyError:
+            return None
+
 class TGNQuery:
     """
     A class to interact with the Getty Thesaurus of Geographic Names (TGN) SPARQL endpoint.
@@ -48,8 +58,10 @@ class TGNQuery:
             country_code (str): Country code or name
             place_type (str): Optional type of place (e.g., 'ciudad', 'pueblo')
         """
+
+
         type_filter = f'?p gvp:placeType [rdfs:label "{place_type}"@{self.lang}].' if place_type else ''
-        
+
         query = f"""
             PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
             PREFIX luc: <http://www.ontotext.com/owlim/lucene#>
@@ -140,7 +152,7 @@ class HGISQuery:
         self.endpoint = endpoint.rstrip("/")
         self.search_domain = search_domain
 
-    def places_by_name(self, place_name: str, ccode: Union[str, None] = None, fclass: str = 'p') -> dict:
+    def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> dict:
         """
         Search for place using the World Historical Gazetteer API https://docs.whgazetteer.org/content/400-Technical.html#api
         
@@ -152,12 +164,12 @@ class HGISQuery:
         
         if not place_name or not isinstance(place_name, str):
             raise ValueError("place_name must be a non-empty string")
-        if ccode and (not isinstance(ccode, str) or len(ccode) != 2):
-            raise ValueError("ccode must be a valid 2-letter country code")
-        
-        
-        url = f"{self.endpoint}{self.search_domain}/?name={place_name}&dataset={self.collection}&ccodes={ccode}&fclass={fclass}"
-        
+        if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
+            raise ValueError("country_code must be a valid 2-letter country code")
+
+
+        url = f"{self.endpoint}{self.search_domain}/?name={place_name}&dataset={self.collection}&ccodes={country_code}&fclass={place_type}"
+
         try:
             response = requests.get(url)
             response.raise_for_status()
@@ -216,7 +228,7 @@ class GeonamesQuery:
         if not self.username:
             raise ValueError("GEONAMES_USERNAME environment variable is required")
 
-    def places_by_name(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None) -> dict:
+    def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> dict:
         """
         Search for places using the Geonames API.
         
@@ -226,8 +238,6 @@ class GeonamesQuery:
             place_type (str): Optional feature class (A: country, P: city/village, etc.).
                               Additional types can be added in the data/mappings/geonames_place_map.json file.
         """
-        # Map common place types to Geonames feature classes
-        place_type_map = json.load(open("data/mappings/geonames_place_map.json"))
 
         params = {
             'q': place_name,
@@ -240,8 +250,8 @@ class GeonamesQuery:
         if country_code:
             params['country'] = country_code
         
-        if place_type and place_type.lower() in place_type_map:
-            params['featureClass'] = place_type_map[place_type.lower()]
+        if place_type:
+            params['featureClass'] = place_type.lower()
 
         try:
             response = requests.get(
@@ -305,12 +315,10 @@ class WikidataQuery:
         self.search_endpoint = search_endpoint
         self.entitydata_endpoint = entitydata_endpoint
 
-    def places_by_name(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None) -> list:
+    def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> list:
         """
         Search for entities using the Wikidata API.
         """
-        place_type_map = json.load(open("data/mappings/wikidata_place_map.json"))
-        place_type_id = place_type_map.get(place_type.lower()) if place_type else None
 
         params = {
             "action": "wbsearchentities",
@@ -355,7 +363,7 @@ class WikidataQuery:
                 continue
 
             # Place type filter
-            if place_type_id and not self._match_place_type(claims, place_type_id):
+            if place_type and not self._match_place_type(claims, place_type):
                 continue
 
             enriched_results.append({
@@ -413,10 +421,20 @@ class PlaceResolver:
     A unified resolver that queries multiple geolocation services in order
     and returns the first match with valid coordinates.
     """
-    def __init__(self, services: list):
+    def __init__(self, services: list, places_map_json: str = "data/mappings/places_map.json"):
         self.services = services
+        self.places_map = self._load_places_map(places_map_json)
 
-    def resolve(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None) -> tuple:
+    def _load_places_map(self, json_file: str) -> dict:
+        try:
+            with open(json_file, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading places map: {e}")
+            raise ValueError(f"Could not load places map from {json_file}. Ensure the file exists and is valid JSON.")
+
+    def resolve(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None,
+               use_default_filter: bool = False) -> tuple:
         """
         Try resolving the place coordinates using multiple sources.
 
@@ -424,6 +442,8 @@ class PlaceResolver:
             place_name (str): The place name to search
             country_code (str): ISO country code (optional)
             place_type (str): Place type (optional)
+            use_default_filter (bool): If True, apply a default filter as fallback in case the place_type is not found.
+                                        If no place_type is provided, no filtering will be applied.
 
         Returns:
             tuple: (lat, lon) or (None, None) if not found
@@ -431,7 +451,24 @@ class PlaceResolver:
         for service in self.services:
             try:
                 logger.info(f"Trying {service.__class__.__name__} for '{place_name}'")
-                results = service.places_by_name(place_name, country_code, place_type)
+                mapper = PlaceTypeMapper(self.places_map)
+                service_key = service.__class__.__name__.lower().replace("query", "")
+
+                resolved_type = None
+
+                if place_type:
+                    resolved_type = mapper.get_for_service(place_type, service_key)
+                    if resolved_type is None and use_default_filter:
+                        logger.warning(
+                            f"Unrecognized place_type '{place_type}' for service '{service_key}', falling back to 'pueblo'."
+                        )
+                        resolved_type = mapper.get_for_service("pueblo", service_key)
+                    elif resolved_type is None:
+                        logger.info(
+                            f"Skipping place_type filter for service '{service_key}' (unrecognized type: '{place_type}')."
+                        )
+
+                results = service.places_by_name(place_name, country_code, resolved_type)
                 coords = service.get_best_match(results, place_name)
                 if coords != (None, None):
                     logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {coords}")
