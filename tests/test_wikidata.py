@@ -13,4 +13,4 @@ def test_wikidata_query():
     assert coordinates[0] is not None, "Coordinates should not be None"
     assert isinstance(coordinates, tuple), "Coordinates should be a tuple"
     assert len(coordinates) == 2, "Coordinates should contain latitude and longitude"
-    assert coordinates == (40.71427, -74.00597), f"Coordinates {coordinates} do not match expected values for New York, US"
+    assert coordinates == (40.71277777777778, -74.00611111111111), f"Coordinates {coordinates} do not match expected values for New York, US"

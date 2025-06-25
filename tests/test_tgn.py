@@ -1,13 +1,13 @@
 from georesolver.resolver import TGNQuery, PlaceResolver
 
 def test_tgn_query():
-    service = [TGNQuery(lang="es")]
+    service = [TGNQuery(lang="en")]
 
     resolver = PlaceResolver(services=service)
 
     place_name = "Aucará"
     country_code = "PE"
-    place_type = "pueblo"
+    place_type = "inhabited places"
 
     coordinates = resolver.resolve(place_name, country_code, place_type)
     assert coordinates[0] is not None, "Coordinates should not be None"
