@@ -1,0 +1,74 @@
+{
+  "pueblo": {
+    "geonames": "PPL",
+    "wikidata": "Q532",
+    "tgn": "inhabited places",
+    "whg": "settlement"
+  },
+  "village": {
+    "geonames": "PPL",
+    "wikidata": "Q532", 
+    "tgn": "villages",
+    "whg": "settlement"
+  },
+  "town": {
+    "geonames": "PPL",
+    "wikidata": "Q3957",
+    "tgn": "towns",
+    "whg": "settlement"
+  },
+  "city": {
+    "geonames": "PPL",
+    "wikidata": "Q515",
+    "tgn": "cities",
+    "whg": "settlement"
+  },
+  "municipality": {
+    "geonames": "A",
+    "wikidata": "Q15284",
+    "tgn": "administrative divisions",
+    "whg": "admin"
+  },
+  "capital": {
+    "geonames": "PPLC",
+    "wikidata": "Q5119",
+    "tgn": "capitals",
+    "whg": "admin"
+  },
+  "historic town": {
+    "geonames": "PPLH",
+    "wikidata": "Q11755880",
+    "tgn": "historic settlements",
+    "whg": "settlement"
+  },
+  "abandoned village": {
+    "geonames": "PPLQ",
+    "wikidata": "Q281292",
+    "tgn": "abandoned settlements",
+    "whg": "settlement"
+  },
+  "section": {
+    "geonames": "PPLX",
+    "wikidata": "Q123705",
+    "tgn": "sections",
+    "whg": "settlement"
+  },
+  "farm village": {
+    "geonames": "PPLF",
+    "wikidata": "Q1437459",
+    "tgn": "rural settlements",
+    "whg": "settlement"
+  },
+  "religious site": {
+    "geonames": "PPLR",
+    "wikidata": "Q1370598",
+    "tgn": "religious settlements",
+    "whg": "settlement"
+  },
+  "populated cluster": {
+    "geonames": "PPLS",
+    "wikidata": "Q16735823",
+    "tgn": "populated places",
+    "whg": "settlement"
+  }
+}
