@@ -9,8 +9,8 @@ description = "Multi-source place name to coordinates resolver using TGN, WHG, G
 authors = [
   {name="Jairo Antonio Melo Florez", email="jairoantoniomelo@gmail.com"}
 ]
-readme = "README.md"
-license = {text = "MIT"}
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {text = "GPL-3.0-only"}
 requires-python = ">=3.9"
 dependencies = [
   "SPARQLWrapper==2.0.0",
@@ -46,3 +46,8 @@ classifiers = [
   "Topic :: Scientific/Engineering :: GIS",
   "Topic :: Utilities"
 ]
+
+[project.urls]
+Homepage = "https://github.com/jairomelo/Georesolver"
+Issues = "https://github.com/jairomelo/Georesolver/issues"
+Documentation = "https://jairomelo.com/Georesolver/"
