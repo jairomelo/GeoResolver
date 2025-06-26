@@ -18,8 +18,6 @@ config.read("conf/global.conf")
 
 load_dotenv(config["default"]["env_file"])
 
-logger = setup_logger("georesolver")
-
 class BaseQuery:
     """
     Base class for geolocation API services.
@@ -33,13 +31,15 @@ class BaseQuery:
         cache_expiry: int = 86400,  # 1 day
         rate_limit: tuple = (30, 1),  # 30 calls per 1 second
         enable_cache: bool = True,
+        verbose: bool = False
     ):
         self.base_url = base_url.rstrip("/")
         self.calls, self.period = rate_limit
+        self.logger = setup_logger(self.__class__.__name__, verbose)
 
         if enable_cache:
             requests_cache.install_cache(cache_name, expire_after=cache_expiry)
-            logger.info(f"Installed cache '{cache_name}' (expires after {cache_expiry}s)")
+            self.logger.info(f"Installed cache '{cache_name}' (expires after {cache_expiry}s)")
 
     @sleep_and_retry
     @limits(calls=30, period=1)
@@ -52,12 +52,12 @@ class BaseQuery:
             response = requests.get(full_url, params=params)
             response.raise_for_status()
             if getattr(response, "from_cache", False):
-                logger.info(f"[CACHE HIT] {response.url}")
+                self.logger.info(f"[CACHE HIT] {response.url}")
             else:
-                logger.info(f"[API CALL] {response.url}")
+                self.logger.info(f"[API CALL] {response.url}")
             return response
         except requests.RequestException as e:
-            logger.error(f"Request failed for URL: {full_url}, params: {params}, error: {e}")
+            self.logger.error(f"Request failed for URL: {full_url}, params: {params}, error: {e}")
             raise
 
 
@@ -131,10 +131,10 @@ class TGNQuery(BaseQuery):
             if isinstance(results, dict) and "results" in results and "bindings" in results["results"]:
                 return results["results"]["bindings"]
             else:
-                logger.error(f"Unexpected SPARQL result format for '{place_name}': {results}")
+                self.logger.error(f"Unexpected SPARQL result format for '{place_name}': {results}")
                 return []
         except Exception as e:
-            logger.error(f"Error querying TGN for '{place_name}': {str(e)}")
+            self.logger.error(f"Error querying TGN for '{place_name}': {str(e)}")
             return []
 
     def get_coordinates_lod_json(self, tgn_uri: str) -> tuple:
@@ -150,7 +150,7 @@ class TGNQuery(BaseQuery):
                         return lat, lon
             return (None, None)
         except Exception as e:
-            logger.error(f"Error fetching coordinates via JSON for {tgn_uri}: {e}")
+            self.logger.error(f"Error fetching coordinates via JSON for {tgn_uri}: {e}")
             return (None, None)
 
     def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
@@ -165,7 +165,7 @@ class TGNQuery(BaseQuery):
             uri = r.get("p", {}).get("value", "")
             ratio = fuzz.ratio(label.lower(), place_name.lower())
             if ratio >= fuzzy_threshold:
-                logger.info(f"Best match for '{place_name}': {label} ({ratio}%)")
+                self.logger.info(f"Best match for '{place_name}': {label} ({ratio}%)")
                 return self.get_coordinates_lod_json(uri)
         
         return (None, None)
@@ -210,7 +210,7 @@ class WHGQuery(BaseQuery):
         if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
             raise ValueError("country_code must be a valid 2-letter country code")
         if not place_type:
-            logger.warning("place_type should be a string, defaulting to 'p' for place type.")
+            self.logger.warning("place_type should be a string, defaulting to 'p' for place type.")
             place_type = "p"
 
         url = f"{self.base_url}/{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.collection}"
@@ -219,16 +219,16 @@ class WHGQuery(BaseQuery):
             response = self._limited_get(url)
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Request error searching for '{place_name}': {str(e)}")
+            self.logger.error(f"Request error searching for '{place_name}': {str(e)}")
             return {"features": []}
         except ValueError as e:
-            logger.error(f"Invalid JSON response for '{place_name}': {str(e)}")
+            self.logger.error(f"Invalid JSON response for '{place_name}': {str(e)}")
             return {"features": []}
 
 
     def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
 
-        logger.info(f"Finding best match for '{place_name}' in WHG results")
+        self.logger.info(f"Finding best match for '{place_name}' in WHG results")
 
         try:
             if len(results["features"]) == 0:
@@ -244,11 +244,11 @@ class WHGQuery(BaseQuery):
                     continue
                 
                 ratio = fuzz.ratio(name.lower(), place_name.lower())
-                logger.info(f"Comparing '{name}' with '{place_name}': {ratio}% similarity")
+                self.logger.info(f"Comparing '{name}' with '{place_name}': {ratio}% similarity")
                 if ratio >= fuzzy_threshold:
                     geometry = r.get("geometry", {})
                     if geometry.get("type") == "GeometryCollection":
-                        logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first valid point.")
+                        self.logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first valid point.")
 
                         coordinates = None
                         for geom in geometry.get("geometries", []):
@@ -256,19 +256,19 @@ class WHGQuery(BaseQuery):
                                 coordinates = geom.get("coordinates")
                                 break
                         if not coordinates:
-                            logger.warning(f"No valid Point found in GeometryCollection for '{place_name}'.")
+                            self.logger.warning(f"No valid Point found in GeometryCollection for '{place_name}'.")
                             continue
                         
                     else:
                         coordinates = geometry.get("coordinates")
                     if coordinates and len(coordinates) == 2:
-                        logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
+                        self.logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
                         return coordinates[1], coordinates[0] # Convert from GeoJSON (lon, lat) to (lat, lon)
 
             return (None, None)
         
         except Exception as e:
-            logger.error(f"Error processing results: {str(e)}")
+            self.logger.error(f"Error processing results: {str(e)}")
             return (None, None)
         
 class GeonamesQuery(BaseQuery):
@@ -325,7 +325,7 @@ class GeonamesQuery(BaseQuery):
             )
             return response.json()
         except Exception as e:
-            logger.error(f"Error querying Geonames for '{place_name}': {str(e)}")
+            self.logger.error(f"Error querying Geonames for '{place_name}': {str(e)}")
             return {"geonames": []}
 
     def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
@@ -363,7 +363,7 @@ class GeonamesQuery(BaseQuery):
                 if ratio > best_ratio:
                     best_ratio = ratio
                     best_coords = (float(place["lat"]), float(place["lng"]))
-                    logger.info(f"Found match: '{name}' with similarity {ratio}%")
+                    self.logger.info(f"Found match: '{name}' with similarity {ratio}%")
 
         if best_ratio >= fuzzy_threshold:
             return best_coords
@@ -398,7 +398,7 @@ class WikidataQuery(BaseQuery):
             response = self._limited_get(self.search_endpoint, params=params)
             search_results = response.json().get("search", [])
         except Exception as e:
-            logger.error(f"Error querying Wikidata for '{place_name}': {e}")
+            self.logger.error(f"Error querying Wikidata for '{place_name}': {e}")
             return []
 
         enriched_results = []
@@ -437,7 +437,7 @@ class WikidataQuery(BaseQuery):
             response = self._limited_get(url)
             return response.json()["entities"][qid]
         except Exception as e:
-            logger.warning(f"Failed to fetch entity data for {qid}: {e}")
+            self.logger.warning(f"Failed to fetch entity data for {qid}: {e}")
             return {}
 
     def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
@@ -456,7 +456,7 @@ class WikidataQuery(BaseQuery):
             if score > best_score and score >= fuzzy_threshold:
                 best_score = score
                 best_coords = coords
-                logger.info(f"Wikidata match: '{label}' → {score}%")
+                self.logger.info(f"Wikidata match: '{label}' → {score}%")
 
         return best_coords if best_coords else (None, None)
 
@@ -492,17 +492,22 @@ class PlaceResolver:
     and returns the first match with valid coordinates.
     """
     def __init__(self, services: list, places_map_json: str = "data/mappings/places_map.json",
-                 threshold: float = 90):
+                 threshold: float = 90, verbose: bool = False):
         self.services = services
         self.places_map = self._load_places_map(places_map_json)
         self.threshold = threshold
+        self.logger = setup_logger(self.__class__.__name__, verbose)
+
+        for service in self.services:
+            service.logger = setup_logger(service.__class__.__name__, verbose)
+            self.logger.debug(f"Updated logger for {service.__class__.__name__} with verbose={verbose}")
 
     def _load_places_map(self, json_file: str) -> dict:
         try:
             with open(json_file, "r") as f:
                 return json.load(f)
         except Exception as e:
-            logger.error(f"Error loading places map: {e}")
+            self.logger.error(f"Error loading places map: {e}")
             raise ValueError(f"Could not load places map from {json_file}. Ensure the file exists and is valid JSON.")
 
     def resolve(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None,
@@ -522,7 +527,7 @@ class PlaceResolver:
         """
         for service in self.services:
             try:
-                logger.info(f"Trying {service.__class__.__name__} for '{place_name}'")
+                self.logger.info(f"Trying {service.__class__.__name__} for '{place_name}'")
                 mapper = PlaceTypeMapper(self.places_map)
                 service_key = service.__class__.__name__.lower().replace("query", "")
 
@@ -531,23 +536,23 @@ class PlaceResolver:
                 if place_type:
                     resolved_type = mapper.get_for_service(place_type, service_key)
                     if resolved_type is None and use_default_filter:
-                        logger.warning(
+                        self.logger.warning(
                             f"Unrecognized place_type '{place_type}' for service '{service_key}', falling back to 'pueblo'."
                         )
                         resolved_type = mapper.get_for_service("pueblo", service_key)
                     elif resolved_type is None:
-                        logger.info(
+                        self.logger.info(
                             f"Skipping place_type filter for service '{service_key}' (unrecognized type: '{place_type}')."
                         )
 
                 results = service.places_by_name(place_name, country_code, resolved_type)
                 coords = service.get_best_match(results, place_name, fuzzy_threshold=self.threshold)
                 if coords != (None, None):
-                    logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {coords}")
+                    self.logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {coords}")
                     return coords
             except Exception as e:
                 traceback_str = traceback.format_exc()
-                logger.warning(f"{service.__class__.__name__} failed for '{place_name}': {e}\n{traceback_str}")
-        logger.warning(f"Could not resolve '{place_name}' via any service.")
+                self.logger.warning(f"{service.__class__.__name__} failed for '{place_name}': {e}\n{traceback_str}")
+        self.logger.warning(f"Could not resolve '{place_name}' via any service.")
         return (None, None)
 
