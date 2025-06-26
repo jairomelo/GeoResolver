@@ -4,6 +4,7 @@ from SPARQLWrapper import SPARQLWrapper, JSON
 from rapidfuzz import fuzz
 import os
 import json
+from importlib.resources import files
 import requests
 import requests_cache
 import pandas as pd
@@ -524,8 +525,7 @@ class PlaceResolver:
     A unified resolver that queries multiple geolocation services in order
     and returns the first match with valid coordinates.
     """
-    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: str = "../data/mappings/places_map.json",
-                 threshold: float = 90, verbose: bool = False):
+    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: Union[str, None] = None, threshold: float = 90, verbose: bool = False):
         
         self.logger = setup_logger(self.__class__.__name__, verbose)
         
@@ -545,13 +545,19 @@ class PlaceResolver:
             service.logger = setup_logger(service.__class__.__name__, verbose)
             self.logger.debug(f"Updated logger for {service.__class__.__name__} with verbose={verbose}")
 
-    def _load_places_map(self, json_file: str) -> dict:
+    def _load_places_map(self, custom_path=None):
         try:
-            with open(json_file, "r") as f:
-                return json.load(f)
+            if custom_path:
+                with open(custom_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            else:
+                resource_path = files("georesolver").joinpath("data/mappings/places_map.json")
+                with resource_path.open("r", encoding="utf-8") as f:
+                    return json.load(f)
         except Exception as e:
             self.logger.error(f"Error loading places map: {e}")
-            raise ValueError(f"Could not load places map from {json_file}. Ensure the file exists and is valid JSON.")
+            return {}
+
 
     def resolve(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None,
                use_default_filter: bool = False) -> tuple:
