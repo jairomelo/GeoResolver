@@ -1,4 +1,4 @@
-from georesolver.resolver import GeonamesQuery, PlaceResolver
+from georesolver import GeonamesQuery, PlaceResolver
 
 def test_geonames_query():
     service = [GeonamesQuery()]

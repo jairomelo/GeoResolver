@@ -1,4 +1,4 @@
-from georesolver.resolver import PlaceResolver, GeonamesQuery, WHGQuery, WikidataQuery, TGNQuery
+from georesolver import PlaceResolver, GeonamesQuery, WHGQuery, WikidataQuery, TGNQuery
 import pandas as pd
 
 def test_batch_resolver_series():

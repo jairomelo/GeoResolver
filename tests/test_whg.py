@@ -1,4 +1,4 @@
-from georesolver.resolver import WHGQuery, PlaceResolver
+from georesolver import WHGQuery, PlaceResolver
 
 def test_whg_query():
     service = [WHGQuery()]

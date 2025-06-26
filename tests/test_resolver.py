@@ -1,4 +1,4 @@
-from georesolver.resolver import (    GeonamesQuery,
+from georesolver import (    GeonamesQuery,
     TGNQuery,
     WikidataQuery,
     WHGQuery,

@@ -1,4 +1,4 @@
-from georesolver.resolver import WikidataQuery, PlaceResolver
+from georesolver import WikidataQuery, PlaceResolver
 
 def test_wikidata_query():
     service = [WikidataQuery()]

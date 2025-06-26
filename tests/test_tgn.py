@@ -1,4 +1,4 @@
-from georesolver.resolver import TGNQuery, PlaceResolver
+from georesolver import TGNQuery, PlaceResolver
 
 def test_tgn_query():
     service = [TGNQuery(lang="en")]
