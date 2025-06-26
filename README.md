@@ -53,7 +53,7 @@ GEONAMES_USERNAME=your_geonames_username
 **Pass it explicitly**
 
 ```python
-from georesolver.resolver import GeonamesQuery
+from georesolver import GeonamesQuery
 
 geonames_query = GeonamesQuery(username="your_geonames_username")
 ```
@@ -65,7 +65,7 @@ The most straightforward way to use the library is through the `PlaceResolver` c
 To resolve a place name, call the `.resolve()` method with the name and (optionally) a country code and place type. If no filters are specified, the first sufficiently similar match across all services is returned.
 
 ```python
-from georesolver.resolver import PlaceResolver
+from georesolver import PlaceResolver
 
 # Initialize the resolver (uses all services by default)
 resolver = PlaceResolver()
@@ -86,7 +86,7 @@ Coordinates: 51.50853, -0.12574
 You can control which services `PlaceResolver` uses and configure them individually. For example:
 
 ```python
-from georesolver.resolver import PlaceResolver, GeonamesQuery, TGNQuery
+from georesolver import PlaceResolver, GeonamesQuery, TGNQuery
 
 geonames = GeonamesQuery(geonames_username="your_geonames_username")
 tgn = TGNQuery(lang="es")
@@ -104,7 +104,7 @@ You can use the `resolve_batch` method to apply place name resolution to each ro
 
 ```python
 import pandas as pd
-from georesolver.resolver import PlaceResolver, GeonamesQuery
+from georesolver import PlaceResolver, GeonamesQuery
 
 # Sample data
 df = pd.DataFrame({
