@@ -17,7 +17,8 @@ dependencies = [
   "RapidFuzz==3.13.0",
   "requests==2.32.4",
   "python-dotenv==1.1.0",
-  ratelimit==2.2.1
+  "ratelimit==2.2.1",
+  "requests-cache==1.2.1"
 ]
 keywords = [
   "geocoding",

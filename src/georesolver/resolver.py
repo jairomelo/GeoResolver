@@ -1,23 +1,65 @@
 import traceback
-from typing import Union
+from typing import Union, Optional, Dict, Any
 from SPARQLWrapper import SPARQLWrapper, JSON
 import configparser
 from rapidfuzz import fuzz
 import os
 import json
 import requests
+import requests_cache
 import ast
 from dotenv import load_dotenv
 from ratelimit import limits, sleep_and_retry
 
 from georesolver.utils.LoggerHandler import setup_logger
 
-logger = setup_logger("getCoordinates")
-
 config = configparser.ConfigParser()
 config.read("conf/global.conf")
 
 load_dotenv(config["default"]["env_file"])
+
+logger = setup_logger("georesolver")
+
+class BaseQuery:
+    """
+    Base class for geolocation API services.
+    Handles caching, rate limiting, and basic GET requests.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        cache_name: str = "geo_cache",
+        cache_expiry: int = 86400,  # 1 day
+        rate_limit: tuple = (30, 1),  # 30 calls per 1 second
+        enable_cache: bool = True,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.calls, self.period = rate_limit
+
+        if enable_cache:
+            requests_cache.install_cache(cache_name, expire_after=cache_expiry)
+            logger.info(f"Installed cache '{cache_name}' (expires after {cache_expiry}s)")
+
+    @sleep_and_retry
+    @limits(calls=30, period=1)
+    def _limited_get(self, url: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
+        """
+        Internal method to perform a GET request with rate limiting.
+        """
+        full_url = f"{self.base_url}{url}" if not url.startswith("http") else url
+        try:
+            response = requests.get(full_url, params=params)
+            response.raise_for_status()
+            if getattr(response, "from_cache", False):
+                logger.info(f"[CACHE HIT] {response.url}")
+            else:
+                logger.info(f"[API CALL] {response.url}")
+            return response
+        except requests.RequestException as e:
+            logger.error(f"Request failed for URL: {full_url}, params: {params}, error: {e}")
+            raise
+
 
 class PlaceTypeMapper:
     def __init__(self, mapping: dict):
@@ -29,7 +71,7 @@ class PlaceTypeMapper:
         except KeyError:
             return None
 
-class TGNQuery:
+class TGNQuery(BaseQuery):
     """
     A class to interact with the Getty Thesaurus of Geographic Names (TGN) SPARQL endpoint.
     
@@ -46,13 +88,14 @@ class TGNQuery:
         >>> results = tgn.places_by_name("Madrid", "Spain", "ciudad")
         >>> coordinates = tgn.get_best_match(results, "Madrid")
     """
-    def __init__(self, endpoint: str = config["apis"]["tgn_endpoint"], lang: str = "en"):
-        self.sparql = SPARQLWrapper(endpoint)
+    def __init__(self,  lang: str = "en"):
+        super().__init__(base_url=config["apis"]["tgn_endpoint"])
+        self.sparql = SPARQLWrapper(self.base_url)
         self.sparql.setReturnFormat(JSON)
         self.lang = lang
 
     @sleep_and_retry
-    @limits(calls=5, period=1)  # TGN allows 5 calls per second
+    @limits(calls=10, period=1)
     def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> Union[dict, list]:
         """
         Search for places using the TGN SPARQL endpoint.
@@ -97,18 +140,14 @@ class TGNQuery:
     def get_coordinates_lod_json(self, tgn_uri: str) -> tuple:
         json_url = tgn_uri + ".json"
         try:
-            response = requests.get(json_url)
-            if response.status_code == 200:
-                data = response.json()
-
-                for item in data.get("identified_by"):
-                    if item.get("type") == "crm:E47_Spatial_Coordinates":
-                        value = item.get("value")
-                        coords = ast.literal_eval(value)
-                        if isinstance(coords, list) and len(coords) == 2:
-                            lon, lat = coords
-                            return (lat, lon)
-
+            response = self._limited_get(json_url) 
+            data = response.json()
+            for item in data.get("identified_by", []):
+                if item.get("type") == "crm:E47_Spatial_Coordinates":
+                    coords = ast.literal_eval(item.get("value"))
+                    if isinstance(coords, list) and len(coords) == 2:
+                        lon, lat = coords
+                        return lat, lon
             return (None, None)
         except Exception as e:
             logger.error(f"Error fetching coordinates via JSON for {tgn_uri}: {e}")
@@ -131,7 +170,7 @@ class TGNQuery:
         
         return (None, None)
 
-class WHGQuery:
+class WHGQuery(BaseQuery):
     """
     A class to interact with the World Historical Gazetteer (WHG) API.
 
@@ -149,11 +188,9 @@ class WHGQuery:
         >>> results = whg.places_by_name("Cuicatlán", country_code="MX", place_type="p")
         >>> coordinates = whg.get_best_match(results, place_type="pueblo", country_code="MX")
     """
-    def __init__(self, endpoint: str = config["apis"]["whg_endpoint"], search_domain: str = "/index", collection: str = ""):
-        if not endpoint or not isinstance(endpoint, str):
-            raise ValueError("Endpoint must be a non-empty string")
+    def __init__(self, search_domain: str = "index", collection: str = ""):
+        super().__init__(base_url=config["apis"]["whg_endpoint"])
         self.collection = collection
-        self.endpoint = endpoint.rstrip("/")
         self.search_domain = search_domain
 
     @sleep_and_retry
@@ -176,11 +213,10 @@ class WHGQuery:
             logger.warning("place_type should be a string, defaulting to 'p' for place type.")
             place_type = "p"
 
-        url = f"{self.endpoint}{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.collection}"
+        url = f"{self.base_url}/{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.collection}"
 
         try:
-            response = requests.get(url)
-            response.raise_for_status()
+            response = self._limited_get(url)
             return response.json()
         except requests.exceptions.RequestException as e:
             logger.error(f"Request error searching for '{place_name}': {str(e)}")
@@ -227,7 +263,7 @@ class WHGQuery:
                         coordinates = geometry.get("coordinates")
                     if coordinates and len(coordinates) == 2:
                         logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
-                        return coordinates[1], coordinates[0] # Return (lat, lon). For some reason WHG returns (lon, lat) in coordinates
+                        return coordinates[1], coordinates[0] # Convert from GeoJSON (lon, lat) to (lat, lon)
 
             return (None, None)
         
@@ -235,7 +271,7 @@ class WHGQuery:
             logger.error(f"Error processing results: {str(e)}")
             return (None, None)
         
-class GeonamesQuery:
+class GeonamesQuery(BaseQuery):
     """
     A class to interact with the Geonames API.
 
@@ -251,14 +287,12 @@ class GeonamesQuery:
         >>> results = geonames.places_by_name("Madrid", country="ES")
         >>> coordinates = geonames.get_best_match(results, "Madrid")
     """
-    def __init__(self, endpoint: str = config["apis"]["geonames_endpoint"]):
-        self.endpoint = endpoint.rstrip('/')
+    def __init__(self):
+        super().__init__(base_url=config["apis"]["geonames_endpoint"])
         self.username = os.getenv('GEONAMES_USERNAME')
         if not self.username:
             raise ValueError("GEONAMES_USERNAME environment variable is required")
 
-    @sleep_and_retry
-    @limits(calls=30, period=1)  # Geonames allows 30 calls per second
     def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> dict:
         """
         Search for places using the Geonames API.
@@ -285,11 +319,10 @@ class GeonamesQuery:
             params['featureClass'] = place_type.lower()
 
         try:
-            response = requests.get(
-                f"{self.endpoint}/searchJSON",
+            response = self._limited_get(
+                "/searchJSON",
                 params=params
             )
-            response.raise_for_status()
             return response.json()
         except Exception as e:
             logger.error(f"Error querying Geonames for '{place_name}': {str(e)}")
@@ -337,22 +370,21 @@ class GeonamesQuery:
         
         return (None, None)
 
-class WikidataQuery:
+class WikidataQuery(BaseQuery):
     """
     A class to interact with the Wikidata MediaWiki API for geographic coordinates lookup.
     """
 
-    def __init__(self, search_endpoint="https://www.wikidata.org/w/api.php", entitydata_endpoint="https://www.wikidata.org/wiki/Special:EntityData/"):
+    def __init__(self,
+                 search_endpoint="https://www.wikidata.org/w/api.php",
+                 entitydata_endpoint="https://www.wikidata.org/wiki/Special:EntityData/"):
+        super().__init__(base_url=search_endpoint)
         self.search_endpoint = search_endpoint
         self.entitydata_endpoint = entitydata_endpoint
 
     @sleep_and_retry
-    @limits(calls=30, period=1)  # Wikidata doesn't have a hard limit, but we set a conservative limit
+    @limits(calls=30, period=1)
     def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> list:
-        """
-        Search for entities using the Wikidata API.
-        """
-
         params = {
             "action": "wbsearchentities",
             "search": place_name,
@@ -363,12 +395,10 @@ class WikidataQuery:
         }
 
         try:
-            response = requests.get(self.search_endpoint, params=params, timeout=10)
-            response.raise_for_status()
+            response = self._limited_get(self.search_endpoint, params=params)
             search_results = response.json().get("search", [])
         except Exception as e:
-            traceback_str = traceback.format_exc()
-            logger.error(f"Error querying Wikidata search API for '{place_name}': {e} \n{traceback_str}")
+            logger.error(f"Error querying Wikidata for '{place_name}': {e}")
             return []
 
         enriched_results = []
@@ -377,25 +407,19 @@ class WikidataQuery:
             qid = result.get("id")
             label = result.get("label", "")
 
-            try:
-                data_url = f"{self.entitydata_endpoint}{qid}.json"
-                entity_response = requests.get(data_url, timeout=10)
-                entity_response.raise_for_status()
-                entity_data = entity_response.json()["entities"][qid]
-                claims = entity_data.get("claims", {})
-            except Exception as e:
-                logger.warning(f"Could not fetch entity data for {qid}: {e}")
+            # Fetch entity data
+            entity_data = self._fetch_entity_data(qid)
+            if not entity_data:
                 continue
 
+            claims = entity_data.get("claims", {})
             coords = self._extract_coordinates(claims)
-            if coords is None:
+            if not coords or coords == (None, None):
                 continue
 
-            # Country filter
             if country_code and not self._match_country(claims, country_code):
                 continue
 
-            # Place type filter
             if place_type and not self._match_place_type(claims, place_type):
                 continue
 
@@ -407,7 +431,16 @@ class WikidataQuery:
 
         return enriched_results
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
+    def _fetch_entity_data(self, qid: str) -> dict:
+        try:
+            url = f"{self.entitydata_endpoint}{qid}.json"
+            response = self._limited_get(url)
+            return response.json()["entities"][qid]
+        except Exception as e:
+            logger.warning(f"Failed to fetch entity data for {qid}: {e}")
+            return {}
+
+    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
         if not results:
             return (None, None)
 
@@ -417,37 +450,41 @@ class WikidataQuery:
         for result in results:
             label = result["label"]
             coords = result["coordinates"]
-            score = max(fuzz.ratio(label.lower(), place_name.lower()), fuzz.partial_ratio(label.lower(), place_name.lower()))
+            score = max(fuzz.ratio(label.lower(), place_name.lower()),
+                        fuzz.partial_ratio(label.lower(), place_name.lower()))
 
             if score > best_score and score >= fuzzy_threshold:
                 best_score = score
                 best_coords = coords
-                logger.info(f"Found Wikidata match: '{label}' with score {score}%")
+                logger.info(f"Wikidata match: '{label}' → {score}%")
 
         return best_coords if best_coords else (None, None)
 
-    def _extract_coordinates(self, claims) -> tuple:
+    def _extract_coordinates(self, claims: dict) -> tuple:
         try:
             coord_data = claims.get("P625", [])[0]["mainsnak"]["datavalue"]["value"]
-            return (coord_data["latitude"], coord_data["longitude"])
+            return coord_data["latitude"], coord_data["longitude"]
         except Exception:
             return (None, None)
 
-    def _match_country(self, claims, iso_code: str) -> bool:
+    def _match_country(self, claims: dict, iso_code: str) -> bool:
         try:
             country_entity = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
-            country_data = requests.get(f"https://www.wikidata.org/wiki/Special:EntityData/{country_entity}.json").json()
-            iso = country_data["entities"][country_entity]["claims"]["P297"][0]["mainsnak"]["datavalue"]["value"]
-            return iso.upper() == iso_code.upper()
+            url = f"{self.entitydata_endpoint}{country_entity}.json"
+            response = self._limited_get(url)
+            country_data = response.json()
+            wikidata_iso = country_data["entities"][country_entity]["claims"]["P297"][0]["mainsnak"]["datavalue"]["value"]
+            return wikidata_iso.upper() == iso_code.upper()
         except Exception:
             return False
 
-    def _match_place_type(self, claims, expected_qid: str) -> bool:
+    def _match_place_type(self, claims: dict, expected_qid: str) -> bool:
         try:
             types = [c["mainsnak"]["datavalue"]["value"]["id"] for c in claims.get("P31", [])]
             return expected_qid in types
         except Exception:
             return False
+
         
 class PlaceResolver:
     """
