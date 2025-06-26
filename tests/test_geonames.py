@@ -3,7 +3,7 @@ from georesolver.resolver import GeonamesQuery, PlaceResolver
 def test_geonames_query():
     service = [GeonamesQuery()]
 
-    resolver = PlaceResolver(service)
+    resolver = PlaceResolver(service, verbose=True)
 
     place_name = "New York"
     country_code = "US"
