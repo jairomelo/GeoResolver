@@ -219,7 +219,8 @@ class WHGQuery(BaseQuery):
 
         try:
             response = self._limited_get(url)
-            return response.json()
+            results = response.json()
+            return self._post_filtering(results, country_code=country_code)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Request error searching for '{place_name}': {str(e)}")
             return {"features": []}
@@ -233,14 +234,11 @@ class WHGQuery(BaseQuery):
         self.logger.info(f"Finding best match for '{place_name}' in WHG results")
 
         try:
-            if len(results["features"]) == 0:
-                return (None, None)
-            
-            if len(results["features"]) == 1:
-                coordinates = results["features"][0].get("geometry").get("coordinates")
-                return coordinates[1], coordinates[0]
+            features = results.get("features", [])
+            if not features:
+                return None, None
 
-            for r in results["features"]:
+            for r in features:
                 name = r.get("properties", {}).get("title", "")
                 if not name:
                     continue
@@ -272,6 +270,32 @@ class WHGQuery(BaseQuery):
         except Exception as e:
             self.logger.error(f"Error processing results: {str(e)}")
             return (None, None)
+
+    def _post_filtering(
+    self,
+    results: dict,
+    country_code: Optional[str] = None
+) -> dict:
+        """
+        Post-process the WHG API results to filter by place type and country code.
+        """
+        if not results.get("features"):
+            return {"features": []}
+
+        filtered = []
+        for feature in results["features"]:
+            props = feature.get("properties", {})
+            ccodes = props.get("ccodes", [])
+            if len(ccodes) == 0:
+                ccodes = feature.get("ccodes", [])
+
+            # Check country code
+            if country_code and country_code.upper() not in ccodes:
+                continue
+
+            filtered.append(feature)
+
+        return {"features": filtered}
 
 class GeonamesQuery(BaseQuery):
     """
@@ -496,8 +520,17 @@ class PlaceResolver:
     A unified resolver that queries multiple geolocation services in order
     and returns the first match with valid coordinates.
     """
-    def __init__(self, services: list, places_map_json: str = "data/mappings/places_map.json",
+    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: str = "data/mappings/places_map.json",
                  threshold: float = 90, verbose: bool = False):
+        
+        if services is None or not isinstance(services, list) or len(services) == 0:
+            services = [
+                GeonamesQuery(),
+                WHGQuery(),
+                TGNQuery(),
+                WikidataQuery()
+            ]
+
         self.services = services
         self.places_map = self._load_places_map(places_map_json)
         self.threshold = threshold
