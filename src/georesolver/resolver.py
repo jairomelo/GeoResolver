@@ -1,7 +1,6 @@
 import traceback
 from typing import Union, Optional, Dict, Any, List
 from SPARQLWrapper import SPARQLWrapper, JSON
-import configparser
 from rapidfuzz import fuzz
 import os
 import json
@@ -15,10 +14,13 @@ from ratelimit import limits, sleep_and_retry
 
 from georesolver.utils.LoggerHandler import setup_logger
 
-config = configparser.ConfigParser()
-config.read("conf/global.conf")
+load_dotenv(".env")
 
-load_dotenv(config["default"]["env_file"])
+TGN_ENDPOINT = "http://vocab.getty.edu/sparql"
+WHG_ENDPOINT = "https://whgazetteer.org/api"
+GEONAMES_ENDPOINT = "http://api.geonames.org"
+WIKIDATA_ENDPOINT = "https://www.wikidata.org/w/api.php"
+ENTITYDATA_ENDPOINT = "https://www.wikidata.org/wiki/Special:EntityData/"
 
 class BaseQuery:
     """
@@ -35,9 +37,9 @@ class BaseQuery:
         enable_cache: bool = True,
         verbose: bool = False
     ):
+        self.logger = setup_logger(self.__class__.__name__, verbose)
         self.base_url = base_url.rstrip("/")
         self.calls, self.period = rate_limit
-        self.logger = setup_logger(self.__class__.__name__, verbose)
 
         if enable_cache:
             requests_cache.install_cache(cache_name, expire_after=cache_expiry)
@@ -91,7 +93,7 @@ class TGNQuery(BaseQuery):
         >>> coordinates = tgn.get_best_match(results, "Madrid")
     """
     def __init__(self,  lang: str = "en"):
-        super().__init__(base_url=config["apis"]["tgn_endpoint"])
+        super().__init__(base_url=TGN_ENDPOINT)
         self.sparql = SPARQLWrapper(self.base_url)
         self.sparql.setReturnFormat(JSON)
         self.lang = lang
@@ -191,7 +193,7 @@ class WHGQuery(BaseQuery):
         >>> coordinates = whg.get_best_match(results, place_type="pueblo", country_code="MX")
     """
     def __init__(self, search_domain: str = "index", dataset: str = ""):
-        super().__init__(base_url=config["apis"]["whg_endpoint"])
+        super().__init__(base_url=WHG_ENDPOINT)
         self.dataset = dataset
         self.search_domain = search_domain
 
@@ -316,7 +318,7 @@ class GeonamesQuery(BaseQuery):
         >>> coordinates = geonames.get_best_match(results, "Madrid")
     """
     def __init__(self, geonames_username: Union[str, None] = None):
-        super().__init__(base_url=config["apis"]["geonames_endpoint"])
+        super().__init__(base_url=GEONAMES_ENDPOINT)
         if geonames_username:
             self.username = geonames_username
         else:
@@ -407,8 +409,8 @@ class WikidataQuery(BaseQuery):
     """
 
     def __init__(self,
-                 search_endpoint="https://www.wikidata.org/w/api.php",
-                 entitydata_endpoint="https://www.wikidata.org/wiki/Special:EntityData/"):
+                 search_endpoint=WIKIDATA_ENDPOINT,
+                 entitydata_endpoint=ENTITYDATA_ENDPOINT):
         super().__init__(base_url=search_endpoint)
         self.search_endpoint = search_endpoint
         self.entitydata_endpoint = entitydata_endpoint
@@ -522,8 +524,10 @@ class PlaceResolver:
     A unified resolver that queries multiple geolocation services in order
     and returns the first match with valid coordinates.
     """
-    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: str = "data/mappings/places_map.json",
+    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: str = "../data/mappings/places_map.json",
                  threshold: float = 90, verbose: bool = False):
+        
+        self.logger = setup_logger(self.__class__.__name__, verbose)
         
         if services is None or not isinstance(services, list) or len(services) == 0:
             services = [
@@ -536,7 +540,6 @@ class PlaceResolver:
         self.services = services
         self.places_map = self._load_places_map(places_map_json)
         self.threshold = threshold
-        self.logger = setup_logger(self.__class__.__name__, verbose)
 
         for service in self.services:
             service.logger = setup_logger(service.__class__.__name__, verbose)
