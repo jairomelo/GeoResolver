@@ -13,14 +13,14 @@ readme = {file = "README.md", content-type = "text/markdown"}
 license = {text = "GPL-3.0-only"}
 requires-python = ">=3.9"
 dependencies = [
-  "SPARQLWrapper==2.0.0",
-  "RapidFuzz==3.13.0",
-  "requests==2.32.4",
-  "python-dotenv==1.1.0",
-  "ratelimit==2.2.1",
-  "requests-cache==1.2.1",
-  "tqdm==4.67.1",
-  "pandas==2.3.0"
+  "SPARQLWrapper~=2.0.0",
+  "RapidFuzz~=3.13.0",
+  "requests~=2.32.4",
+  "python-dotenv~=1.1.0",
+  "ratelimit~=2.2.1",
+  "requests-cache~=1.2.1",
+  "tqdm~=4.67.1",
+  "pandas~=2.3.0"
 ]
 keywords = [
   "geocoding",
