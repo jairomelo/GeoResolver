@@ -272,7 +272,7 @@ class WHGQuery(BaseQuery):
         except Exception as e:
             self.logger.error(f"Error processing results: {str(e)}")
             return (None, None)
-        
+
 class GeonamesQuery(BaseQuery):
     """
     A class to interact with the Geonames API.
@@ -289,11 +289,14 @@ class GeonamesQuery(BaseQuery):
         >>> results = geonames.places_by_name("Madrid", country="ES")
         >>> coordinates = geonames.get_best_match(results, "Madrid")
     """
-    def __init__(self):
+    def __init__(self, geonames_username: Union[str, None] = None):
         super().__init__(base_url=config["apis"]["geonames_endpoint"])
-        self.username = os.getenv('GEONAMES_USERNAME')
+        if geonames_username:
+            self.username = geonames_username
+        else:
+            self.username = os.getenv("GEONAMES_USERNAME")
         if not self.username:
-            raise ValueError("GEONAMES_USERNAME environment variable is required")
+            raise ValueError("Geonames username must be provided either as an argument or via the GEONAMES_USERNAME environment variable.")
 
     def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> dict:
         """
