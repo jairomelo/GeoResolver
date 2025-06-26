@@ -190,9 +190,9 @@ class WHGQuery(BaseQuery):
         >>> results = whg.places_by_name("Cuicatlán", country_code="MX", place_type="p")
         >>> coordinates = whg.get_best_match(results, place_type="pueblo", country_code="MX")
     """
-    def __init__(self, search_domain: str = "index", collection: str = ""):
+    def __init__(self, search_domain: str = "index", dataset: str = ""):
         super().__init__(base_url=config["apis"]["whg_endpoint"])
-        self.collection = collection
+        self.dataset = dataset
         self.search_domain = search_domain
 
     @sleep_and_retry
@@ -215,7 +215,7 @@ class WHGQuery(BaseQuery):
             self.logger.warning("place_type should be a string, defaulting to 'p' for place type.")
             place_type = "p"
 
-        url = f"{self.base_url}/{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.collection}"
+        url = f"{self.base_url}/{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.dataset}"
 
         try:
             response = self._limited_get(url)
@@ -277,7 +277,9 @@ class WHGQuery(BaseQuery):
     country_code: Optional[str] = None
 ) -> dict:
         """
-        Post-process the WHG API results to filter by place type and country code.
+        Post-process the WHG API results to filter by country code. This extra step is necessary
+        because the WHG API does a soft filtering by country code, but it does not guarantee that
+        all results will match the provided country code.
         """
         if not results.get("features"):
             return {"features": []}
