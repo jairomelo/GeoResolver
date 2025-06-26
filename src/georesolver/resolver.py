@@ -1,5 +1,5 @@
 import traceback
-from typing import Union, Optional, Dict, Any
+from typing import Union, Optional, Dict, Any, List
 from SPARQLWrapper import SPARQLWrapper, JSON
 import configparser
 from rapidfuzz import fuzz
@@ -7,6 +7,8 @@ import os
 import json
 import requests
 import requests_cache
+import pandas as pd
+from tqdm import tqdm
 import ast
 from dotenv import load_dotenv
 from ratelimit import limits, sleep_and_retry
@@ -556,3 +558,69 @@ class PlaceResolver:
         self.logger.warning(f"Could not resolve '{place_name}' via any service.")
         return (None, None)
 
+    def resolve_batch(
+            self,
+            df: pd.DataFrame,
+            place_column: str = "place_name",
+            country_column: Union[str, None] = None,
+            place_type_column: Union[str, None] = None,
+            use_default_filter: bool = False,
+            return_split: bool = False,
+            return_list: bool = False,
+            show_progress: bool = True
+    ) -> Union[pd.Series, pd.DataFrame, List[tuple]]:
+        """
+        Resolve coordinates for a batch of places from a DataFrame.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame with place names and optional country/type columns.
+            place_column (str): Column name for place names.
+            country_column (str): Column name for country codes (optional).
+            place_type_column (str): Column name for place types (optional).
+            return_split (bool): If True, return separate 'lat' and 'lon' columns.
+            return_list (bool): If True, return a list of (lat, lon) tuples instead of a Series or DataFrame.
+
+        Raises:
+            ValueError: If the input DataFrame is not valid or required columns are missing.
+
+        Returns:
+            pd.Series or pd.DataFrame: A Series of (lat, lon) tuples or a DataFrame with 'lat' and 'lon' columns.
+        """
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("Input must be a pandas DataFrame")
+
+        if place_column not in df.columns:
+            raise ValueError(f"Column '{place_column}' not found in DataFrame")
+
+        if country_column and country_column not in df.columns:
+            raise ValueError(f"Column '{country_column}' not found in DataFrame")
+
+        if place_type_column and place_type_column not in df.columns:
+            raise ValueError(f"Column '{place_type_column}' not found in DataFrame")
+        
+        if show_progress:
+            df_iter = tqdm(df.iterrows(), total=len(df))
+        else:
+            df_iter = df.iterrows()
+
+        results = []
+        for _, row in df_iter:
+            place_name = row.get(place_column, "")
+            country_code = row.get(country_column) if country_column else None
+            place_type = row.get(place_type_column) if place_type_column else None
+
+            coords = self.resolve(
+                place_name=place_name,
+                country_code=country_code,
+                place_type=place_type,
+                use_default_filter=use_default_filter
+            )
+
+            results.append(coords)
+            
+        if return_split:
+            return pd.DataFrame(results, columns=["lat", "lon"], index=df.index)
+        elif return_list:
+            return [coord if isinstance(coord, tuple) and len(coord) == 2 else (None, None) for coord in results]
+        else:
+            return pd.Series(results, name="coordinates")
