@@ -215,7 +215,7 @@ class WHGQuery(BaseQuery):
         if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
             raise ValueError("country_code must be a valid 2-letter country code")
         if not place_type:
-            self.logger.warning("place_type should be a string, defaulting to 'p' for place type.")
+            self.logger.info("place_type should be a string, defaulting to 'p' for place type.")
             place_type = "p"
 
         url = f"{self.base_url}/{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.dataset}"
@@ -633,6 +633,8 @@ class PlaceResolver:
         Returns:
             pd.Series or pd.DataFrame: A Series of (lat, lon) tuples or a DataFrame with 'lat' and 'lon' columns.
         """
+        #TODO: Gently handle NaN and empty strings in place_column
+
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame")
 
