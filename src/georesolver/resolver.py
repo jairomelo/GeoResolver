@@ -246,7 +246,7 @@ class WHGQuery(BaseQuery):
         if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
             raise ValueError("country_code must be a valid 2-letter country code")
         if not place_type:
-            self.logger.info("place_type should be a string, defaulting to 'p' for place type.")
+            self.logger.debug("No place_type provided, defaulting to 'p' for place type.")
             place_type = "p"
 
         # Build URL with optional country code
@@ -624,7 +624,7 @@ class PlaceResolver:
                         )
                         resolved_type = mapper.get_for_service("pueblo", service_key)
                     elif resolved_type is None:
-                        self.logger.info(
+                        self.logger.debug(
                             f"Skipping place_type filter for service '{service_key}' (unrecognized type: '{place_type}')."
                         )
 
