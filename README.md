@@ -12,6 +12,8 @@ GeoResolver is a lightweight Python library for resolving place names into geogr
 
 The goal is to provide a simple interface for converting place names into latitude and longitude coordinates. The library was created to address the common need in datasets, archival collections, and manually curated records to disambiguate or complete place names, and to efficiently resolve them into coordinates.
 
+> GeoResolver is particularly useful for geocoding historical or legacy datasets, where place names are often inconsistent, ambiguous, or obsolete. It is not intended to replace tools like Geopy for general-purpose geocoding. Instead, GeoResolver complements them by offering a focused solution based on authoritative gazetteers tailored for academic and archival contexts.
+
 ## How it works
 
 The logic behind GeoResolver is straightforward:
