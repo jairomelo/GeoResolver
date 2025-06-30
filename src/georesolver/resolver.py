@@ -1,5 +1,6 @@
 import traceback
 from typing import Union, Optional, Dict, Any, List
+from abc import ABC, abstractmethod
 from SPARQLWrapper import SPARQLWrapper, JSON
 from rapidfuzz import fuzz
 import os
@@ -23,7 +24,7 @@ GEONAMES_ENDPOINT = "http://api.geonames.org"
 WIKIDATA_ENDPOINT = "https://www.wikidata.org/w/api.php"
 ENTITYDATA_ENDPOINT = "https://www.wikidata.org/wiki/Special:EntityData/"
 
-class BaseQuery:
+class BaseQuery(ABC):
     """
     Base class for geolocation API services.
     Handles caching, rate limiting, and basic GET requests.
@@ -65,6 +66,36 @@ class BaseQuery:
             self.logger.error(f"Request failed for URL: {full_url}, params: {params}, error: {e}")
             raise
 
+    @abstractmethod
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> Union[dict, list]:
+        """
+        Search for places by name. Must be implemented by subclasses.
+        
+        Parameters:
+            place_name (str): Name of the place to search for
+            country_code (Optional[str]): ISO 3166-1 alpha-2 country code
+            place_type (Optional[str]): Optional place type filter
+            
+        Returns:
+            Union[dict, list]: Search results in service-specific format
+        """
+        pass
+
+    @abstractmethod
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
+        """
+        Get the best matching place from the results based on name similarity.
+        
+        Parameters:
+            results (Union[dict, list]): Results from places_by_name query
+            place_name (str): Original place name to match against
+            fuzzy_threshold (float): Minimum similarity score (0-100) for a match
+        
+        Returns:
+            tuple: (latitude, longitude) or (None, None) if no match found
+        """
+        pass
+
 
 class PlaceTypeMapper:
     def __init__(self, mapping: dict):
@@ -101,7 +132,7 @@ class TGNQuery(BaseQuery):
 
     @sleep_and_retry
     @limits(calls=10, period=1)
-    def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> Union[dict, list]:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> Union[dict, list]:
         """
         Search for places using the TGN SPARQL endpoint.
         
@@ -158,7 +189,7 @@ class TGNQuery(BaseQuery):
             self.logger.error(f"Error fetching coordinates via JSON for {tgn_uri}: {e}")
             return (None, None)
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
         if not results:
             return (None, None)
         
@@ -200,7 +231,7 @@ class WHGQuery(BaseQuery):
 
     @sleep_and_retry
     @limits(calls=5, period=1)  # There's no official rate limit for WHG, but we set a conservative limit
-    def places_by_name(self, place_name: str, country_code: str, place_type: str = "p") -> dict:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = "p") -> dict:
         """
         Search for place using the World Historical Gazetteer API https://docs.whgazetteer.org/content/400-Technical.html#api
         
@@ -218,7 +249,10 @@ class WHGQuery(BaseQuery):
             self.logger.info("place_type should be a string, defaulting to 'p' for place type.")
             place_type = "p"
 
-        url = f"{self.base_url}/{self.search_domain}/?name={place_name}&ccodes={country_code}&fclass={place_type}&dataset={self.dataset}"
+        # Build URL with optional country code
+        url = f"{self.base_url}/{self.search_domain}/?name={place_name}&fclass={place_type}&dataset={self.dataset}"
+        if country_code:
+            url += f"&ccodes={country_code}"
 
         try:
             response = self._limited_get(url)
@@ -232,12 +266,12 @@ class WHGQuery(BaseQuery):
             return {"features": []}
 
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
 
         self.logger.info(f"Finding best match for '{place_name}' in WHG results")
 
         try:
-            features = results.get("features", [])
+            features = results.get("features", []) if isinstance(results, dict) else []
             if not features:
                 return None, None
 
@@ -327,7 +361,7 @@ class GeonamesQuery(BaseQuery):
         if not self.username:
             raise ValueError("Geonames username must be provided either as an argument or via the GEONAMES_USERNAME environment variable.")
 
-    def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> dict:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> dict:
         """
         Search for places using the Geonames API.
         
@@ -362,19 +396,19 @@ class GeonamesQuery(BaseQuery):
             self.logger.error(f"Error querying Geonames for '{place_name}': {str(e)}")
             return {"geonames": []}
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float) -> tuple:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
         """
         Get the best matching place from the results based on name similarity.
         
         Parameters:
-            results (dict): Results from places_by_name query
+            results (Union[dict, list]): Results from places_by_name query
             place_name (str): Original place name to match against
             fuzzy_threshold (float): Minimum similarity score (0-100) for a match
         
         Returns:
             tuple: (latitude, longitude) or (None, None) if no match found
         """
-        if not results.get("geonames"):
+        if not isinstance(results, dict) or not results.get("geonames"):
             return (None, None)
 
         geonames = results["geonames"]
@@ -418,7 +452,7 @@ class WikidataQuery(BaseQuery):
 
     @sleep_and_retry
     @limits(calls=30, period=1)
-    def places_by_name(self, place_name: str, country_code: str, place_type: Union[str, None] = None) -> list:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> list:
         params = {
             "action": "wbsearchentities",
             "search": place_name,
@@ -474,7 +508,7 @@ class WikidataQuery(BaseQuery):
             self.logger.warning(f"Failed to fetch entity data for {qid}: {e}")
             return {}
 
-    def get_best_match(self, results: dict, place_name: str, fuzzy_threshold: float = 90) -> tuple:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float = 90) -> tuple:
         if not results:
             return (None, None)
 
@@ -633,7 +667,11 @@ class PlaceResolver:
         Returns:
             pd.Series or pd.DataFrame: A Series of (lat, lon) tuples or a DataFrame with 'lat' and 'lon' columns.
         """
-        #TODO: Gently handle NaN and empty strings in place_column
+        #TODO: 
+        # - Gently handle NaN and empty strings in place_column
+        # - Process data in chunks of 100 rows
+        # - Only process records with valid place names (non-empty strings)
+        # - Sort Series 
 
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame")
