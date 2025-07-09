@@ -336,19 +336,19 @@ class WHGQuery(BaseQuery):
 
         return {"features": filtered}
 
-class GeonamesQuery(BaseQuery):
+class GeoNamesQuery(BaseQuery):
     """
-    A class to interact with the Geonames API.
+    A class to interact with the GeoNames API.
 
     This class provides methods to search and retrieve geographic coordinates for places
-    using the Geonames API. It supports filtering by country and feature class.
+    using the GeoNames API. It supports filtering by country and feature class.
 
     Attributes:
-        endpoint (str): The base URL for the Geonames API
-        username (str): Geonames API username for authentication
+        endpoint (str): The base URL for the GeoNames API
+        username (str): GeoNames API username for authentication
 
     Example:
-        >>> geonames = GeonamesQuery("http://api.geonames.org", username="your_username")
+        >>> geonames = GeoNamesQuery("http://api.geonames.org", username="your_username")
         >>> results = geonames.places_by_name("Madrid", country="ES")
         >>> coordinates = geonames.get_best_match(results, "Madrid")
     """
@@ -359,11 +359,11 @@ class GeonamesQuery(BaseQuery):
         else:
             self.username = os.getenv("GEONAMES_USERNAME")
         if not self.username:
-            raise ValueError("Geonames username must be provided either as an argument or via the GEONAMES_USERNAME environment variable.")
+            raise ValueError("GeoNames username must be provided either as an argument or via the GEONAMES_USERNAME environment variable.")
 
     def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> dict:
         """
-        Search for places using the Geonames API.
+        Search for places using the GeoNames API.
         
         Parameters:
             place_name (str): Name of the place to search for
@@ -393,7 +393,7 @@ class GeonamesQuery(BaseQuery):
             )
             return response.json()
         except Exception as e:
-            self.logger.error(f"Error querying Geonames for '{place_name}': {str(e)}")
+            self.logger.error(f"Error querying GeoNames for '{place_name}': {str(e)}")
             return {"geonames": []}
 
     def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
@@ -565,7 +565,7 @@ class PlaceResolver:
         
         if services is None or not isinstance(services, list) or len(services) == 0:
             services = [
-                GeonamesQuery(),
+                GeoNamesQuery(),
                 WHGQuery(),
                 TGNQuery(),
                 WikidataQuery()

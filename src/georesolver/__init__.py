@@ -1,3 +1,3 @@
-from .resolver import PlaceResolver, GeonamesQuery, WHGQuery, TGNQuery, WikidataQuery
+from .resolver import PlaceResolver, GeoNamesQuery, WHGQuery, TGNQuery, WikidataQuery
 
-__all__ = ["PlaceResolver", "GeonamesQuery", "WHGQuery", "TGNQuery", "WikidataQuery"]
+__all__ = ["PlaceResolver", "GeoNamesQuery", "WHGQuery", "TGNQuery", "WikidataQuery"]

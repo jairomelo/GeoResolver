@@ -1,8 +1,8 @@
-from georesolver import PlaceResolver, GeonamesQuery, WHGQuery, WikidataQuery, TGNQuery
+from georesolver import PlaceResolver, GeoNamesQuery, WHGQuery, WikidataQuery, TGNQuery
 import pandas as pd
 
 def test_batch_resolver_series():
-    service = [GeonamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
+    service = [GeoNamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
     df = pd.DataFrame({
         "place": ["Berlin", "Madrid", "Rome"],
         "country": ["DE", "ES", "IT"],
@@ -25,7 +25,7 @@ def test_batch_resolver_series():
     assert len(results) > 0, "Results should not be empty"
 
 def test_batch_resolver_dataframe():
-    service = [GeonamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
+    service = [GeoNamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
     df = pd.DataFrame({
         "place": ["Berlin", "Madrid", "Rome"],
         "country": ["DE", "ES", "IT"],
@@ -52,7 +52,7 @@ def test_batch_resolver_dataframe():
     assert len(df) == 3, "DataFrame should contain 3 rows"
 
 def test_batch_resolver_list():
-    service = [GeonamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
+    service = [GeoNamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
     df = pd.DataFrame({
         "place": ["Berlin", "Madrid", "Rome"],
         "country": ["DE", "ES", "IT"],

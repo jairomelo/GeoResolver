@@ -1,4 +1,4 @@
-from georesolver import (    GeonamesQuery,
+from georesolver import (    GeoNamesQuery,
     TGNQuery,
     WikidataQuery,
     WHGQuery,
@@ -6,7 +6,7 @@ from georesolver import (    GeonamesQuery,
 )
 
 def test_geonames_query():
-    service = [GeonamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
+    service = [GeoNamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
 
     resolver = PlaceResolver(service, threshold=75)
 
