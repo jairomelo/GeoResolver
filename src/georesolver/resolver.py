@@ -82,7 +82,7 @@ class BaseQuery(ABC):
         pass
 
     @abstractmethod
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> Union[dict, None]:
         """
         Get the best matching place from the results based on name similarity.
         
@@ -92,7 +92,12 @@ class BaseQuery(ABC):
             fuzzy_threshold (float): Minimum similarity score (0-100) for a match
         
         Returns:
-            tuple: (latitude, longitude) or (None, None) if no match found
+            dictionary: A dictionary containing 
+                {
+                "place": place_name, "standardize_label": str, "latitude": float, "longitude": float, "source": str, 
+                "id": str, "uri": str, "country_code": str, "confidence": float, "threshold": fuzzy_threshold,
+                "match_type": str
+                }
         """
         pass
 
@@ -395,8 +400,43 @@ class GeoNamesQuery(BaseQuery):
         except Exception as e:
             self.logger.error(f"Error querying GeoNames for '{place_name}': {str(e)}")
             return {"geonames": []}
+        
+    def _post_filtering(
+        self,
+        results: dict,
+        place_name: str,
+        fuzzy_threshold: float,
+        confidence: float,
+        lang: Union[str, None] = "en") -> dict:
+        """
+        Returns the dictionary customized to the GeoNames API results.
+        """
 
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
+        standardize_label = ""
+
+        if lang:
+            self.logger.info(f"Post-filtering GeoNames results for '{place_name}' with language '{lang}'")
+
+            standardize_label = next((name for name in results["alternateNames"] if name["lang"] == lang), {}).get("name", "")
+
+            if not standardize_label:
+                standardize_label = results[0]["toponymName"]
+
+        return {
+                "place": place_name,
+                "standardize_label": standardize_label,
+                "latitude": float(results["lat"]),
+                "longitude": float(results["lng"]),
+                "source": "GeoNames",
+                "id": results["geonameId"],
+                "uri": f"http://sws.geonames.org/{results['geonameId']}/",
+                "country_code": results.get("countryCode", ""),
+                "confidence": confidence,
+                "threshold": fuzzy_threshold
+            }
+        
+
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> Union[dict, None]:
         """
         Get the best matching place from the results based on name similarity.
         
@@ -406,17 +446,22 @@ class GeoNamesQuery(BaseQuery):
             fuzzy_threshold (float): Minimum similarity score (0-100) for a match
         
         Returns:
-            tuple: (latitude, longitude) or (None, None) if no match found
+            dictionary: A dictionary containing {
+            "place": str, "standardize_label": str, "latitude": float, "longitude": float, "source": "GeoNames", 
+            "id": str, "uri": str, "country_code": str, "confidence": float, "threshold": fuzzy_threshold,
+            "match_type": str
+            }
         """
         if not isinstance(results, dict) or not results.get("geonames"):
-            return (None, None)
+            return None
 
         geonames = results["geonames"]
         if len(geonames) == 1:
-            return (float(geonames[0]["lat"]), float(geonames[0]["lng"]))
+            result = geonames[0]
+            return self._post_filtering(result, place_name, fuzzy_threshold, 100)
 
         best_ratio = 0
-        best_coords = (None, None)
+        best_coords = None
         
         for place in geonames:
             name = place.get("name", "")
@@ -430,13 +475,13 @@ class GeoNamesQuery(BaseQuery):
                 
                 if ratio > best_ratio:
                     best_ratio = ratio
-                    best_coords = (float(place["lat"]), float(place["lng"]))
+                    best_coords = self._post_filtering(place, place_name, fuzzy_threshold, ratio)
                     self.logger.info(f"Found match: '{name}' with similarity {ratio}%")
 
         if best_ratio >= fuzzy_threshold:
             return best_coords
         
-        return (None, None)
+        return None
 
 class WikidataQuery(BaseQuery):
     """
