@@ -67,7 +67,7 @@ class BaseQuery(ABC):
             raise
 
     @abstractmethod
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> Union[dict, list]:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: Optional[str] = None) -> Union[dict, list]:
         """
         Search for places by name. Must be implemented by subclasses.
         
@@ -75,14 +75,15 @@ class BaseQuery(ABC):
             place_name (str): Name of the place to search for
             country_code (Optional[str]): ISO 3166-1 alpha-2 country code
             place_type (Optional[str]): Optional place type filter
-            
+            lang (Optional[str]): Language code for place type
+
         Returns:
             Union[dict, list]: Search results in service-specific format
         """
         pass
 
     @abstractmethod
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> Union[dict, None]:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = None) -> Union[dict, None]:
         """
         Get the best matching place from the results based on name similarity.
         
@@ -90,6 +91,7 @@ class BaseQuery(ABC):
             results (Union[dict, list]): Results from places_by_name query
             place_name (str): Original place name to match against
             fuzzy_threshold (float): Minimum similarity score (0-100) for a match
+            lang (Optional[str]): Language code for place type
         
         Returns:
             dictionary: A dictionary containing 
@@ -129,15 +131,14 @@ class TGNQuery(BaseQuery):
         >>> results = tgn.places_by_name("Madrid", "Spain", "ciudad")
         >>> coordinates = tgn.get_best_match(results, "Madrid")
     """
-    def __init__(self,  lang: str = "en"):
+    def __init__(self):
         super().__init__(base_url=TGN_ENDPOINT)
         self.sparql = SPARQLWrapper(self.base_url)
         self.sparql.setReturnFormat(JSON)
-        self.lang = lang
 
     @sleep_and_retry
     @limits(calls=10, period=1)
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> Union[dict, list]:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: str = "en") -> Union[dict, list]:
         """
         Search for places using the TGN SPARQL endpoint.
         
@@ -148,7 +149,7 @@ class TGNQuery(BaseQuery):
         """
 
 
-        type_filter = f'?p gvp:placeType [rdfs:label "{place_type}"@{self.lang}].' if place_type else ''
+        type_filter = f'?p gvp:placeType [rdfs:label "{place_type}"@{lang}].' if place_type else ''
 
         query = f"""
             PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -366,7 +367,7 @@ class GeoNamesQuery(BaseQuery):
         if not self.username:
             raise ValueError("GeoNames username must be provided either as an argument or via the GEONAMES_USERNAME environment variable.")
 
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> dict:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: Optional[str] = None) -> dict:
         """
         Search for places using the GeoNames API.
         
@@ -407,7 +408,7 @@ class GeoNamesQuery(BaseQuery):
         place_name: str,
         fuzzy_threshold: float,
         confidence: float,
-        lang: Union[str, None] = "en") -> dict:
+        lang: Optional[str] = "en") -> dict:
         """
         Returns the dictionary customized to the GeoNames API results.
         """
@@ -425,6 +426,7 @@ class GeoNamesQuery(BaseQuery):
         return {
                 "place": place_name,
                 "standardize_label": standardize_label,
+                "language": lang,
                 "latitude": float(results["lat"]),
                 "longitude": float(results["lng"]),
                 "source": "GeoNames",
@@ -432,11 +434,12 @@ class GeoNamesQuery(BaseQuery):
                 "uri": f"http://sws.geonames.org/{results['geonameId']}/",
                 "country_code": results.get("countryCode", ""),
                 "confidence": confidence,
-                "threshold": fuzzy_threshold
+                "threshold": fuzzy_threshold,
+                "match_type": "exact" if confidence == 100 else "fuzzy"
             }
         
 
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> Union[dict, None]:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = None) -> Union[dict, None]:
         """
         Get the best matching place from the results based on name similarity.
         
@@ -458,7 +461,7 @@ class GeoNamesQuery(BaseQuery):
         geonames = results["geonames"]
         if len(geonames) == 1:
             result = geonames[0]
-            return self._post_filtering(result, place_name, fuzzy_threshold, 100)
+            return self._post_filtering(result, place_name, fuzzy_threshold, 100, lang)
 
         best_ratio = 0
         best_coords = None
@@ -475,7 +478,7 @@ class GeoNamesQuery(BaseQuery):
                 
                 if ratio > best_ratio:
                     best_ratio = ratio
-                    best_coords = self._post_filtering(place, place_name, fuzzy_threshold, ratio)
+                    best_coords = self._post_filtering(place, place_name, fuzzy_threshold, ratio, lang)
                     self.logger.info(f"Found match: '{name}' with similarity {ratio}%")
 
         if best_ratio >= fuzzy_threshold:
@@ -604,8 +607,8 @@ class PlaceResolver:
     A unified resolver that queries multiple geolocation services in order
     and returns the first match with valid coordinates.
     """
-    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: Union[str, None] = None, threshold: float = 90, verbose: bool = False):
-        
+    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: Union[str, None] = None, lang: Optional[str] = None, threshold: float = 90, verbose: bool = False):
+
         self.logger = setup_logger(self.__class__.__name__, verbose)
         
         if services is None or not isinstance(services, list) or len(services) == 0:
@@ -618,6 +621,7 @@ class PlaceResolver:
 
         self.services = services
         self.places_map = self._load_places_map(places_map_json)
+        self.lang = lang if lang else "en"
         self.threshold = threshold
 
         for service in self.services:
@@ -673,8 +677,8 @@ class PlaceResolver:
                             f"Skipping place_type filter for service '{service_key}' (unrecognized type: '{place_type}')."
                         )
 
-                results = service.places_by_name(place_name, country_code, resolved_type)
-                coords = service.get_best_match(results, place_name, fuzzy_threshold=self.threshold)
+                results = service.places_by_name(place_name, country_code, resolved_type, lang=self.lang)
+                coords = service.get_best_match(results, place_name, fuzzy_threshold=self.threshold, lang=self.lang)
                 if coords != (None, None):
                     self.logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {coords}")
                     return coords

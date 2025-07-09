@@ -3,9 +3,9 @@ from georesolver import GeoNamesQuery, PlaceResolver
 def test_geonames_query():
     service = [GeoNamesQuery()]
 
-    resolver = PlaceResolver(service, verbose=True) # type: ignore
+    resolver = PlaceResolver(service, verbose=True, lang="es") # type: ignore
 
-    place_name = "New York"
+    place_name = "Nueva York"
     country_code = "US"
     place_type = "P"
 
