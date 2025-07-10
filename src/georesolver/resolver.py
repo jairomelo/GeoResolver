@@ -115,6 +115,282 @@ class PlaceTypeMapper:
         except KeyError:
             return None
 
+
+class GeoNamesQuery(BaseQuery):
+    """
+    A class to interact with the GeoNames API.
+
+    This class provides methods to search and retrieve geographic coordinates for places
+    using the GeoNames API. It supports filtering by country and feature class.
+
+    Attributes:
+        endpoint (str): The base URL for the GeoNames API
+        username (str): GeoNames API username for authentication
+
+    Example:
+        >>> geonames = GeoNamesQuery("http://api.geonames.org", username="your_username")
+        >>> results = geonames.places_by_name("Madrid", country="ES")
+        >>> coordinates = geonames.get_best_match(results, "Madrid")
+    """
+    def __init__(self, geonames_username: Union[str, None] = None):
+        super().__init__(base_url=GEONAMES_ENDPOINT)
+        if geonames_username:
+            self.username = geonames_username
+        else:
+            self.username = os.getenv("GEONAMES_USERNAME")
+        if not self.username:
+            raise ValueError("GeoNames username must be provided either as an argument or via the GEONAMES_USERNAME environment variable.")
+
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: Optional[str] = None) -> dict:
+        """
+        Search for places using the GeoNames API.
+        
+        Parameters:
+            place_name (str): Name of the place to search for
+            country_code (str): Optional ISO 3166-1 alpha-2 country code
+            place_type (str): Optional feature class (A: country, P: city/village, etc.).
+                              Additional types can be added in the data/mappings/geonames_place_map.json file.
+        """
+
+        params = {
+            'q': place_name,
+            'username': self.username,
+            'maxRows': 10,
+            'type': 'json',
+            'style': 'FULL'
+        }
+        
+        if country_code:
+            params['country'] = country_code
+        
+        if place_type:
+            params['featureClass'] = place_type.lower()
+
+        try:
+            response = self._limited_get(
+                "/searchJSON",
+                params=params
+            )
+            return response.json()
+        except Exception as e:
+            self.logger.error(f"Error querying GeoNames for '{place_name}': {str(e)}")
+            return {"geonames": []}
+        
+    def _post_filtering(
+        self,
+        results: dict,
+        place_name: str,
+        fuzzy_threshold: float,
+        confidence: float,
+        lang: Optional[str] = "en") -> dict:
+        """
+        Returns the dictionary customized to the GeoNames API results.
+        """
+
+        standardize_label = ""
+
+        if lang:
+            self.logger.info(f"Post-filtering GeoNames results for '{place_name}' with language '{lang}'")
+
+            standardize_label = next((name for name in results.get("alternateNames", []) if name["lang"] == lang), {}).get("name", "")
+
+            if not standardize_label:
+                standardize_label = results["toponymName"]
+
+        return {
+                "place": place_name,
+                "standardize_label": standardize_label,
+                "language": lang,
+                "latitude": float(results["lat"]),
+                "longitude": float(results["lng"]),
+                "source": "GeoNames",
+                "id": results["geonameId"],
+                "uri": f"http://sws.geonames.org/{results['geonameId']}/",
+                "country_code": results.get("countryCode", ""),
+                "confidence": confidence,
+                "threshold": fuzzy_threshold,
+                "match_type": "exact" if confidence == 100 else "fuzzy"
+            }
+        
+
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = None) -> Union[dict, None]:
+        """
+        Get the best matching place from the results based on name similarity.
+        
+        Parameters:
+            results (Union[dict, list]): Results from places_by_name query
+            place_name (str): Original place name to match against
+            fuzzy_threshold (float): Minimum similarity score (0-100) for a match
+        
+        Returns:
+            dictionary: A dictionary containing {
+            "place": str, "standardize_label": str, "latitude": float, "longitude": float, "source": "GeoNames", 
+            "id": str, "uri": str, "country_code": str, "confidence": float, "threshold": fuzzy_threshold,
+            "match_type": str
+            }
+        """
+        if not isinstance(results, dict) or not results.get("geonames"):
+            return None
+
+        geonames = results["geonames"]
+        if len(geonames) == 1:
+            result = geonames[0]
+            return self._post_filtering(result, place_name, fuzzy_threshold, 100, lang)
+
+        best_ratio = 0
+        best_coords = None
+        
+        for place in geonames:
+            name = place.get("name", "")
+            alternate_names = place.get("alternateNames", [])
+            all_names = [name] + [n.get("name", "") for n in alternate_names]
+            
+            for n in all_names:
+                partial_ratio = fuzz.partial_ratio(place_name.lower(), n.lower())
+                regular_ratio = fuzz.ratio(place_name.lower(), n.lower())
+                ratio = max(partial_ratio, regular_ratio)
+                
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_coords = self._post_filtering(place, place_name, fuzzy_threshold, ratio, lang)
+                    self.logger.info(f"Found match: '{name}' with similarity {ratio}%")
+
+        if best_ratio >= fuzzy_threshold:
+            return best_coords
+        
+        return None
+
+class WHGQuery(BaseQuery):
+    """
+    A class to interact with the World Historical Gazetteer (WHG) API.
+
+    This class provides methods to search and retrieve geographic coordinates for historical
+    places using the WHG API. It supports filtering by country code and feature class,
+    and includes functionality to find the best matching place from multiple results.
+
+    Attributes:
+        endpoint (str): The base URL for the WHG API
+        search_domain (str): The API endpoint path for searches. Default is "/index"
+        collection (str): The WHG collection to search in (default: "")
+
+    Example:
+        >>> whg = WHGQuery("https://whgazetteer.org/api")
+        >>> results = whg.places_by_name("Cuicatlán", country_code="MX", place_type="p")
+        >>> coordinates = whg.get_best_match(results, place_type="pueblo", country_code="MX")
+    """
+    def __init__(self, search_domain: str = "index", dataset: str = ""):
+        super().__init__(base_url=WHG_ENDPOINT)
+        self.dataset = dataset
+        self.search_domain = search_domain
+
+    @sleep_and_retry
+    @limits(calls=5, period=1)  # There's no official rate limit for WHG, but we set a conservative limit
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = "p") -> dict:
+        """
+        Search for place using the World Historical Gazetteer API https://docs.whgazetteer.org/content/400-Technical.html#api
+        
+        Parameters:
+            place_name (str): Any string with the name of the place. This keyword includes place names variants.
+            country_code (str): ISO 3166-1 alpha-2 country code.
+            place_type (str): Feature class according to Linked Places Format. Default is 'p' for place. Look at https://github.com/LinkedPasts/linked-places-format for more places classes.
+        """
+        
+        if not place_name or not isinstance(place_name, str):
+            raise ValueError("place_name must be a non-empty string")
+        if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
+            raise ValueError("country_code must be a valid 2-letter country code")
+        if not place_type:
+            self.logger.debug("No place_type provided, defaulting to 'p' for place type.")
+            place_type = "p"
+
+        # Build URL with optional country code
+        url = f"{self.base_url}/{self.search_domain}/?name={place_name}&fclass={place_type}&dataset={self.dataset}"
+        if country_code:
+            url += f"&ccodes={country_code}"
+
+        try:
+            response = self._limited_get(url)
+            results = response.json()
+            return self._post_filtering(results, country_code=country_code)
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Request error searching for '{place_name}': {str(e)}")
+            return {"features": []}
+        except ValueError as e:
+            self.logger.error(f"Invalid JSON response for '{place_name}': {str(e)}")
+            return {"features": []}
+
+
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
+
+        self.logger.info(f"Finding best match for '{place_name}' in WHG results")
+
+        try:
+            features = results.get("features", []) if isinstance(results, dict) else []
+            if not features:
+                return None, None
+
+            for r in features:
+                name = r.get("properties", {}).get("title", "")
+                if not name:
+                    continue
+                
+                ratio = fuzz.ratio(name.lower(), place_name.lower())
+                self.logger.info(f"Comparing '{name}' with '{place_name}': {ratio}% similarity")
+                if ratio >= fuzzy_threshold:
+                    geometry = r.get("geometry", {})
+                    if geometry.get("type") == "GeometryCollection":
+                        self.logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first valid point.")
+
+                        coordinates = None
+                        for geom in geometry.get("geometries", []):
+                            if geom.get("type") == "Point":
+                                coordinates = geom.get("coordinates")
+                                break
+                        if not coordinates:
+                            self.logger.warning(f"No valid Point found in GeometryCollection for '{place_name}'.")
+                            continue
+                        
+                    else:
+                        coordinates = geometry.get("coordinates")
+                    if coordinates and len(coordinates) == 2:
+                        self.logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
+                        return coordinates[1], coordinates[0] # Convert from GeoJSON (lon, lat) to (lat, lon)
+
+            return (None, None)
+        
+        except Exception as e:
+            self.logger.error(f"Error processing results: {str(e)}")
+            return (None, None)
+
+    def _post_filtering(
+    self,
+    results: dict,
+    country_code: Optional[str] = None
+) -> dict:
+        """
+        Post-process the WHG API results to filter by country code. This extra step is necessary
+        because the WHG API does a soft filtering by country code, but it does not guarantee that
+        all results will match the provided country code.
+        """
+        if not results.get("features"):
+            return {"features": []}
+
+        filtered = []
+        for feature in results["features"]:
+            props = feature.get("properties", {})
+            ccodes = props.get("ccodes", [])
+            if len(ccodes) == 0:
+                ccodes = feature.get("ccodes", [])
+
+            # Check country code
+            if country_code and country_code.upper() not in ccodes:
+                continue
+
+            filtered.append(feature)
+
+        return {"features": filtered}
+
+
 class TGNQuery(BaseQuery):
     """
     A class to interact with the Getty Thesaurus of Geographic Names (TGN) SPARQL endpoint.
@@ -274,280 +550,6 @@ class TGNQuery(BaseQuery):
         self.logger.debug(f"No suitable match found for '{place_name}' in TGN.")
         return None
 
-
-class WHGQuery(BaseQuery):
-    """
-    A class to interact with the World Historical Gazetteer (WHG) API.
-
-    This class provides methods to search and retrieve geographic coordinates for historical
-    places using the WHG API. It supports filtering by country code and feature class,
-    and includes functionality to find the best matching place from multiple results.
-
-    Attributes:
-        endpoint (str): The base URL for the WHG API
-        search_domain (str): The API endpoint path for searches. Default is "/index"
-        collection (str): The WHG collection to search in (default: "")
-
-    Example:
-        >>> whg = WHGQuery("https://whgazetteer.org/api")
-        >>> results = whg.places_by_name("Cuicatlán", country_code="MX", place_type="p")
-        >>> coordinates = whg.get_best_match(results, place_type="pueblo", country_code="MX")
-    """
-    def __init__(self, search_domain: str = "index", dataset: str = ""):
-        super().__init__(base_url=WHG_ENDPOINT)
-        self.dataset = dataset
-        self.search_domain = search_domain
-
-    @sleep_and_retry
-    @limits(calls=5, period=1)  # There's no official rate limit for WHG, but we set a conservative limit
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = "p") -> dict:
-        """
-        Search for place using the World Historical Gazetteer API https://docs.whgazetteer.org/content/400-Technical.html#api
-        
-        Parameters:
-            place_name (str): Any string with the name of the place. This keyword includes place names variants.
-            country_code (str): ISO 3166-1 alpha-2 country code.
-            place_type (str): Feature class according to Linked Places Format. Default is 'p' for place. Look at https://github.com/LinkedPasts/linked-places-format for more places classes.
-        """
-        
-        if not place_name or not isinstance(place_name, str):
-            raise ValueError("place_name must be a non-empty string")
-        if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
-            raise ValueError("country_code must be a valid 2-letter country code")
-        if not place_type:
-            self.logger.debug("No place_type provided, defaulting to 'p' for place type.")
-            place_type = "p"
-
-        # Build URL with optional country code
-        url = f"{self.base_url}/{self.search_domain}/?name={place_name}&fclass={place_type}&dataset={self.dataset}"
-        if country_code:
-            url += f"&ccodes={country_code}"
-
-        try:
-            response = self._limited_get(url)
-            results = response.json()
-            return self._post_filtering(results, country_code=country_code)
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Request error searching for '{place_name}': {str(e)}")
-            return {"features": []}
-        except ValueError as e:
-            self.logger.error(f"Invalid JSON response for '{place_name}': {str(e)}")
-            return {"features": []}
-
-
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
-
-        self.logger.info(f"Finding best match for '{place_name}' in WHG results")
-
-        try:
-            features = results.get("features", []) if isinstance(results, dict) else []
-            if not features:
-                return None, None
-
-            for r in features:
-                name = r.get("properties", {}).get("title", "")
-                if not name:
-                    continue
-                
-                ratio = fuzz.ratio(name.lower(), place_name.lower())
-                self.logger.info(f"Comparing '{name}' with '{place_name}': {ratio}% similarity")
-                if ratio >= fuzzy_threshold:
-                    geometry = r.get("geometry", {})
-                    if geometry.get("type") == "GeometryCollection":
-                        self.logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first valid point.")
-
-                        coordinates = None
-                        for geom in geometry.get("geometries", []):
-                            if geom.get("type") == "Point":
-                                coordinates = geom.get("coordinates")
-                                break
-                        if not coordinates:
-                            self.logger.warning(f"No valid Point found in GeometryCollection for '{place_name}'.")
-                            continue
-                        
-                    else:
-                        coordinates = geometry.get("coordinates")
-                    if coordinates and len(coordinates) == 2:
-                        self.logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
-                        return coordinates[1], coordinates[0] # Convert from GeoJSON (lon, lat) to (lat, lon)
-
-            return (None, None)
-        
-        except Exception as e:
-            self.logger.error(f"Error processing results: {str(e)}")
-            return (None, None)
-
-    def _post_filtering(
-    self,
-    results: dict,
-    country_code: Optional[str] = None
-) -> dict:
-        """
-        Post-process the WHG API results to filter by country code. This extra step is necessary
-        because the WHG API does a soft filtering by country code, but it does not guarantee that
-        all results will match the provided country code.
-        """
-        if not results.get("features"):
-            return {"features": []}
-
-        filtered = []
-        for feature in results["features"]:
-            props = feature.get("properties", {})
-            ccodes = props.get("ccodes", [])
-            if len(ccodes) == 0:
-                ccodes = feature.get("ccodes", [])
-
-            # Check country code
-            if country_code and country_code.upper() not in ccodes:
-                continue
-
-            filtered.append(feature)
-
-        return {"features": filtered}
-
-class GeoNamesQuery(BaseQuery):
-    """
-    A class to interact with the GeoNames API.
-
-    This class provides methods to search and retrieve geographic coordinates for places
-    using the GeoNames API. It supports filtering by country and feature class.
-
-    Attributes:
-        endpoint (str): The base URL for the GeoNames API
-        username (str): GeoNames API username for authentication
-
-    Example:
-        >>> geonames = GeoNamesQuery("http://api.geonames.org", username="your_username")
-        >>> results = geonames.places_by_name("Madrid", country="ES")
-        >>> coordinates = geonames.get_best_match(results, "Madrid")
-    """
-    def __init__(self, geonames_username: Union[str, None] = None):
-        super().__init__(base_url=GEONAMES_ENDPOINT)
-        if geonames_username:
-            self.username = geonames_username
-        else:
-            self.username = os.getenv("GEONAMES_USERNAME")
-        if not self.username:
-            raise ValueError("GeoNames username must be provided either as an argument or via the GEONAMES_USERNAME environment variable.")
-
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: Optional[str] = None) -> dict:
-        """
-        Search for places using the GeoNames API.
-        
-        Parameters:
-            place_name (str): Name of the place to search for
-            country_code (str): Optional ISO 3166-1 alpha-2 country code
-            place_type (str): Optional feature class (A: country, P: city/village, etc.).
-                              Additional types can be added in the data/mappings/geonames_place_map.json file.
-        """
-
-        params = {
-            'q': place_name,
-            'username': self.username,
-            'maxRows': 10,
-            'type': 'json',
-            'style': 'FULL'
-        }
-        
-        if country_code:
-            params['country'] = country_code
-        
-        if place_type:
-            params['featureClass'] = place_type.lower()
-
-        try:
-            response = self._limited_get(
-                "/searchJSON",
-                params=params
-            )
-            return response.json()
-        except Exception as e:
-            self.logger.error(f"Error querying GeoNames for '{place_name}': {str(e)}")
-            return {"geonames": []}
-        
-    def _post_filtering(
-        self,
-        results: dict,
-        place_name: str,
-        fuzzy_threshold: float,
-        confidence: float,
-        lang: Optional[str] = "en") -> dict:
-        """
-        Returns the dictionary customized to the GeoNames API results.
-        """
-
-        standardize_label = ""
-
-        if lang:
-            self.logger.info(f"Post-filtering GeoNames results for '{place_name}' with language '{lang}'")
-
-            standardize_label = next((name for name in results.get("alternateNames", []) if name["lang"] == lang), {}).get("name", "")
-
-            if not standardize_label:
-                standardize_label = results["toponymName"]
-
-        return {
-                "place": place_name,
-                "standardize_label": standardize_label,
-                "language": lang,
-                "latitude": float(results["lat"]),
-                "longitude": float(results["lng"]),
-                "source": "GeoNames",
-                "id": results["geonameId"],
-                "uri": f"http://sws.geonames.org/{results['geonameId']}/",
-                "country_code": results.get("countryCode", ""),
-                "confidence": confidence,
-                "threshold": fuzzy_threshold,
-                "match_type": "exact" if confidence == 100 else "fuzzy"
-            }
-        
-
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = None) -> Union[dict, None]:
-        """
-        Get the best matching place from the results based on name similarity.
-        
-        Parameters:
-            results (Union[dict, list]): Results from places_by_name query
-            place_name (str): Original place name to match against
-            fuzzy_threshold (float): Minimum similarity score (0-100) for a match
-        
-        Returns:
-            dictionary: A dictionary containing {
-            "place": str, "standardize_label": str, "latitude": float, "longitude": float, "source": "GeoNames", 
-            "id": str, "uri": str, "country_code": str, "confidence": float, "threshold": fuzzy_threshold,
-            "match_type": str
-            }
-        """
-        if not isinstance(results, dict) or not results.get("geonames"):
-            return None
-
-        geonames = results["geonames"]
-        if len(geonames) == 1:
-            result = geonames[0]
-            return self._post_filtering(result, place_name, fuzzy_threshold, 100, lang)
-
-        best_ratio = 0
-        best_coords = None
-        
-        for place in geonames:
-            name = place.get("name", "")
-            alternate_names = place.get("alternateNames", [])
-            all_names = [name] + [n.get("name", "") for n in alternate_names]
-            
-            for n in all_names:
-                partial_ratio = fuzz.partial_ratio(place_name.lower(), n.lower())
-                regular_ratio = fuzz.ratio(place_name.lower(), n.lower())
-                ratio = max(partial_ratio, regular_ratio)
-                
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_coords = self._post_filtering(place, place_name, fuzzy_threshold, ratio, lang)
-                    self.logger.info(f"Found match: '{name}' with similarity {ratio}%")
-
-        if best_ratio >= fuzzy_threshold:
-            return best_coords
-        
-        return None
 
 class WikidataQuery(BaseQuery):
     """
