@@ -159,17 +159,25 @@ class TGNQuery(BaseQuery):
             PREFIX tgn: <http://vocab.getty.edu/tgn/>
             PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-            SELECT * {{
-                ?p skos:inScheme tgn:; luc:term "{place_name}"; gvp:prefLabelGVP [xl:literalForm ?pLab].
-                ?pp1 skos:inScheme tgn:; luc:term "{country_code}"; gvp:prefLabelGVP [xl:literalForm ?pp1Lab].
-                ?p gvp:broaderPartitiveExtended ?pp1.
+            SELECT DISTINCT ?p ?pLab ?context WHERE {{
+                ?p skos:inScheme tgn:;
+                    luc:term "{place_name}";
+                    gvp:prefLabelGVP [xl:literalForm ?pLab];
+                    gvp:parentString ?context.
+
                 {type_filter}
+                
+                FILTER(CONTAINS(?context, "{country_code}"))
             }}
         """
         
+        self.logger.debug(f"Executing SPARQL {query} for TGN with place name '{place_name}' and country code '{country_code}'")
+
         try:
             self.sparql.setQuery(query)
             results = self.sparql.query().convert()
+            self.logger.debug(f"SPARQL query results for '{place_name}': {results}")
+
             if isinstance(results, dict) and "results" in results and "bindings" in results["results"]:
                 return results["results"]["bindings"]
             else:
@@ -229,7 +237,10 @@ class TGNQuery(BaseQuery):
 
     def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = "en") -> dict:
         if not results:
-            return {"latitude": None, "longitude": None}
+            self.logger.debug(f"No results found for '{place_name}' in TGN.")
+            return None
+
+        self.logger.debug(f"Finding best match for '{place_name}' in TGN {results}")
 
         if len(results) == 1:
             return self._post_filtering(results[0].get("p", {}).get("value", ""),
@@ -242,11 +253,12 @@ class TGNQuery(BaseQuery):
             label = r.get("pLab", {}).get("value", "")
             uri = r.get("p", {}).get("value", "")
             ratio = fuzz.ratio(label.lower(), place_name.lower())
+            self.logger.info(f"Comparing '{label}' with '{place_name} {uri}': {ratio}% similarity")
             if ratio >= fuzzy_threshold:
                 self.logger.info(f"Best match for '{place_name}': {label} ({ratio}%)")
                 return self.get_coordinates_lod_json(uri)
 
-        return {"latitude": None, "longitude": None}
+        return None # Here's the culprit
 
 class WHGQuery(BaseQuery):
     """
