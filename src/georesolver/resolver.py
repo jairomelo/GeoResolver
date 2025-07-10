@@ -537,11 +537,15 @@ class WikidataQuery(BaseQuery):
 
     @sleep_and_retry
     @limits(calls=30, period=1)
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None) -> list:
+    def places_by_name(self, 
+                       place_name: str, 
+                       country_code: Optional[str], 
+                       place_type: Optional[str] = None,
+                       lang: Optional[str] = "en") -> Union[dict, list]:
         params = {
             "action": "wbsearchentities",
             "search": place_name,
-            "language": "en",
+            "language": lang,
             "format": "json",
             "type": "item",
             "limit": 10
@@ -593,9 +597,13 @@ class WikidataQuery(BaseQuery):
             self.logger.warning(f"Failed to fetch entity data for {qid}: {e}")
             return {}
 
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float = 90) -> tuple:
+    def get_best_match(self, 
+                       results: Union[dict, list], 
+                       place_name: str, 
+                       fuzzy_threshold: float,
+                       lang: Optional[str] = None) -> Union[dict, None]:
         if not results:
-            return (None, None)
+            return None
 
         best_score = 0
         best_coords = None
@@ -611,7 +619,7 @@ class WikidataQuery(BaseQuery):
                 best_coords = coords
                 self.logger.info(f"Wikidata match: '{label}' → {score}%")
 
-        return best_coords if best_coords else (None, None)
+        return best_coords if best_coords else None
 
     def _extract_coordinates(self, claims: dict) -> tuple:
         try:
