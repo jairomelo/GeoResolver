@@ -138,7 +138,7 @@ class TGNQuery(BaseQuery):
 
     @sleep_and_retry
     @limits(calls=10, period=1)
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: str = "en") -> Union[dict, list]:
+    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: Optional[str] = "en") -> Union[dict, list]:
         """
         Search for places using the TGN SPARQL endpoint.
         
@@ -179,28 +179,64 @@ class TGNQuery(BaseQuery):
             self.logger.error(f"Error querying TGN for '{place_name}': {str(e)}")
             return []
 
-    def get_coordinates_lod_json(self, tgn_uri: str) -> tuple:
+    def get_coordinates_lod_json(self, data: dict) -> dict:
+        
+        for item in data.get("identified_by", []):
+            if item.get("type") == "crm:E47_Spatial_Coordinates":
+                coords = ast.literal_eval(item.get("value"))
+                if isinstance(coords, list) and len(coords) == 2:
+                    lon, lat = coords
+                    return {"latitude": lat, "longitude": lon}
+        return {"latitude": None, "longitude": None}
+        
+    def _post_filtering(
+        self,
+        tgn_uri: str,
+        place_name: str,
+        fuzzy_threshold: float,
+        confidence: float,
+        lang: Optional[str] = "en") -> dict:
+
         json_url = tgn_uri + ".json"
         try:
-            response = self._limited_get(json_url) 
-            data = response.json()
-            for item in data.get("identified_by", []):
-                if item.get("type") == "crm:E47_Spatial_Coordinates":
-                    coords = ast.literal_eval(item.get("value"))
-                    if isinstance(coords, list) and len(coords) == 2:
-                        lon, lat = coords
-                        return lat, lon
-            return (None, None)
+            response = self._limited_get(json_url)
+            results = response.json()
         except Exception as e:
-            self.logger.error(f"Error fetching coordinates via JSON for {tgn_uri}: {e}")
-            return (None, None)
+            self.logger.error(f"Error fetching TGN data for {place_name}: {e}")
+            return {}
 
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
+        coordinates = self.get_coordinates_lod_json(results)
+        if coordinates["latitude"] is None or coordinates["longitude"] is None:
+            self.logger.warning(f"No valid coordinates found for {place_name} in TGN results.")
+
+
+        return {
+                "place": place_name,
+                "standardize_label": results.get("_label", ""),
+                "language": lang,
+                "latitude": float(coordinates["latitude"]),
+                "longitude": float(coordinates["longitude"]),
+                "source": "TGN",
+                "id": results.get("id", ""),
+                "uri": results.get("id", ""),
+                "country_code": "",
+                "part_of": results.get("part_of", [{}])[0].get("_label", ""),
+                "part_of_uri": results.get("part_of", [{}])[0].get("id", ""),
+                "confidence": confidence,
+                "threshold": fuzzy_threshold,
+                "match_type": "exact" if confidence == 100 else "fuzzy"
+            }
+
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = "en") -> dict:
         if not results:
-            return (None, None)
-        
+            return {"latitude": None, "longitude": None}
+
         if len(results) == 1:
-            return self.get_coordinates_lod_json(results[0].get("p", {}).get("value", ""))
+            return self._post_filtering(results[0].get("p", {}).get("value", ""),
+                                        place_name=place_name,
+                                        fuzzy_threshold=fuzzy_threshold,
+                                        confidence=100,
+                                        lang=lang)
 
         for r in results:
             label = r.get("pLab", {}).get("value", "")
@@ -209,8 +245,8 @@ class TGNQuery(BaseQuery):
             if ratio >= fuzzy_threshold:
                 self.logger.info(f"Best match for '{place_name}': {label} ({ratio}%)")
                 return self.get_coordinates_lod_json(uri)
-        
-        return (None, None)
+
+        return {"latitude": None, "longitude": None}
 
 class WHGQuery(BaseQuery):
     """
