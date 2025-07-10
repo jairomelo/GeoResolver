@@ -454,10 +454,10 @@ class GeoNamesQuery(BaseQuery):
         if lang:
             self.logger.info(f"Post-filtering GeoNames results for '{place_name}' with language '{lang}'")
 
-            standardize_label = next((name for name in results["alternateNames"] if name["lang"] == lang), {}).get("name", "")
+            standardize_label = next((name for name in results.get("alternateNames", []) if name["lang"] == lang), {}).get("name", "")
 
             if not standardize_label:
-                standardize_label = results[0]["toponymName"]
+                standardize_label = results["toponymName"]
 
         return {
                 "place": place_name,
