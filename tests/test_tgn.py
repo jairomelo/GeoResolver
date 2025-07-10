@@ -1,12 +1,12 @@
 from georesolver import TGNQuery, PlaceResolver
 
 def test_tgn_query():
-    service = [TGNQuery()]  # Set language to Spanish
+    service = [TGNQuery()] 
 
     resolver = PlaceResolver(services=service, verbose=True, lang="en", flexible_threshold=True)
 
     place_name = "Rome"
-    country_code = "Italy"
+    country_code = "IT"
     place_type = "pueblo"
 
     coordinates = resolver.resolve(place_name, country_code, place_type, use_default_filter=True)
