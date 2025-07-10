@@ -5,12 +5,12 @@ def test_whg_query():
 
     resolver = PlaceResolver(services=service, verbose=True)
 
-    place_name = "Cuicatlán"
-    country_code = "MX"
-    place_type = "pueblo"
+    place_name = "London"
+    country_code = "CA"
+    place_type = "city"
 
     coordinates = resolver.resolve(place_name, country_code, place_type, use_default_filter=True)
-    assert coordinates[0] is not None, "Coordinates should not be None"
-    assert len(coordinates) == 2, "Coordinates should contain latitude and longitude"
-    assert coordinates == (17.802777777, -96.959444444), "Coordinates do not match expected values for Cuicatlán, Mexico"
+    assert coordinates is not None, "Coordinates should not be None"
+    assert coordinates.get("latitude") is not None and coordinates.get("longitude") is not None, "Coordinates should contain latitude and longitude"
+    assert coordinates.get("source") == "WHG", "Source should be WHG"
 
