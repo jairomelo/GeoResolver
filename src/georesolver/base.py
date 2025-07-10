@@ -30,7 +30,9 @@ class BaseQuery(ABC):
 
     @sleep_and_retry
     @limits(calls=30, period=1)
-    def _limited_get(self, url: str, params: Optional[Dict[str, Any]] = None) -> requests.Response:
+    def _limited_get(self, 
+                     url: str, 
+                     params: Optional[Dict[str, Any]] = None) -> requests.Response:
         """
         Internal method to perform a GET request with rate limiting.
         """
@@ -48,7 +50,11 @@ class BaseQuery(ABC):
             raise
 
     @abstractmethod
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = None, lang: Optional[str] = None) -> Union[dict, list]:
+    def places_by_name(self, 
+                       place_name: str, 
+                       country_code: Optional[str], 
+                       place_type: Optional[str] = None, 
+                       lang: Optional[str] = None) -> Union[dict, list]:
         """
         Search for places by name. Must be implemented by subclasses.
         
@@ -64,7 +70,11 @@ class BaseQuery(ABC):
         pass
 
     @abstractmethod
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = None) -> Union[dict, None]:
+    def get_best_match(self, 
+                       results: Union[dict, list], 
+                       place_name: str, 
+                       fuzzy_threshold: float, 
+                       lang: Optional[str] = None) -> Union[dict, None]:
         """
         Get the best matching place from the results based on name similarity.
         
