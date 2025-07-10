@@ -233,7 +233,9 @@ class WHGQuery(BaseQuery):
         try:
             response = self._limited_get(url)
             results = response.json()
-            return self._post_filtering(results, country_code=country_code)
+            if country_code:
+                return self._post_filtering_search(results, country_code=country_code)
+            return results
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Request error searching for '{place_name}': {str(e)}")
             return {"features": []}
@@ -288,7 +290,7 @@ class WHGQuery(BaseQuery):
             self.logger.error(f"Error processing results: {str(e)}")
             return None
 
-    def _post_filtering(
+    def _post_filtering_search(
     self,
     results: dict,
     country_code: Optional[str] = None
