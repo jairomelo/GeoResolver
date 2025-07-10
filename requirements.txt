@@ -6,3 +6,4 @@ ratelimit==2.2.1
 requests-cache==1.2.1
 tqdm==4.67.1
 pandas==2.3.0
+pycountry==24.6.1

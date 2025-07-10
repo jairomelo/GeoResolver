@@ -9,6 +9,7 @@ from importlib.resources import files
 import requests
 import requests_cache
 import pandas as pd
+import pycountry
 from tqdm import tqdm
 import ast
 from dotenv import load_dotenv
@@ -148,6 +149,14 @@ class TGNQuery(BaseQuery):
             place_type (str): Optional type of place (e.g., 'ciudad', 'pueblo')
         """
 
+        country_name = ""
+
+        if country_code:
+            country = pycountry.countries.get(alpha_2=country_code)
+            if country:
+                country_name = country.name
+            else:
+                country_name = country_code
 
         type_filter = f'?p gvp:placeType [rdfs:label "{place_type}"@{lang}].' if place_type else ''
 
@@ -167,7 +176,7 @@ class TGNQuery(BaseQuery):
 
                 {type_filter}
                 
-                FILTER(CONTAINS(?context, "{country_code}"))
+                FILTER(CONTAINS(?context, "{country_name}"))
             }}
         """
         
