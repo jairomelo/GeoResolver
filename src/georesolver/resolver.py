@@ -198,14 +198,20 @@ class WHGQuery(BaseQuery):
         >>> results = whg.places_by_name("Cuicatlán", country_code="MX", place_type="p")
         >>> coordinates = whg.get_best_match(results, place_type="pueblo", country_code="MX")
     """
-    def __init__(self, search_domain: str = "index", dataset: str = ""):
+    def __init__(self, 
+                 search_domain: str = "index", 
+                 dataset: str = ""):
         super().__init__(base_url=WHG_ENDPOINT)
         self.dataset = dataset
         self.search_domain = search_domain
 
     @sleep_and_retry
     @limits(calls=5, period=1)  # There's no official rate limit for WHG, but we set a conservative limit
-    def places_by_name(self, place_name: str, country_code: Optional[str], place_type: Optional[str] = "p") -> Union[dict, None]:
+    def places_by_name(self, 
+                       place_name: str, 
+                       country_code: Optional[str], 
+                       place_type: Optional[str] = "p",
+                       lang: Optional[str] = None) -> Union[dict, list]:
         """
         Search for place using the World Historical Gazetteer API https://docs.whgazetteer.org/content/400-Technical.html#api
         
@@ -240,14 +246,18 @@ class WHGQuery(BaseQuery):
             return {"features": []}
 
 
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float) -> tuple:
+    def get_best_match(self, 
+                       results: Union[dict, list], 
+                       place_name: str, 
+                       fuzzy_threshold: float,
+                       lang: Optional[str] = None) -> Union[dict, None]:
 
         self.logger.info(f"Finding best match for '{place_name}' in WHG results")
 
         try:
             features = results.get("features", []) if isinstance(results, dict) else []
             if not features:
-                return None, None
+                return None
 
             for r in features:
                 name = r.get("properties", {}).get("title", "")
@@ -274,13 +284,13 @@ class WHGQuery(BaseQuery):
                         coordinates = geometry.get("coordinates")
                     if coordinates and len(coordinates) == 2:
                         self.logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
-                        return coordinates[1], coordinates[0] # Convert from GeoJSON (lon, lat) to (lat, lon)
+                        return coordinates[1], coordinates[0] # TODO: Implement proper response structure
 
-            return (None, None)
+            return None
         
         except Exception as e:
             self.logger.error(f"Error processing results: {str(e)}")
-            return (None, None)
+            return None
 
     def _post_filtering(
     self,
