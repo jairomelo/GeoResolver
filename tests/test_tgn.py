@@ -3,14 +3,14 @@ from georesolver import TGNQuery, PlaceResolver
 def test_tgn_query():
     service = [TGNQuery()]  # Set language to Spanish
 
-    resolver = PlaceResolver(services=service, verbose=True, lang="es")
+    resolver = PlaceResolver(services=service, verbose=True, lang="en", flexible_threshold=True)
 
-    place_name = "Antequera"
-    country_code = "MX"
-    place_type = None
+    place_name = "Rome"
+    country_code = "Italy"
+    place_type = "pueblo"
 
     coordinates = resolver.resolve(place_name, country_code, place_type, use_default_filter=True)
-    assert coordinates[0] is not None, "Coordinates should not be None"
-    assert len(coordinates) == 2, "Coordinates should contain latitude and longitude"
-    assert coordinates == (-14.25, -74.0833), "Coordinates do not match expected values for Aucará, Peru"
+    assert coordinates is not None, "Coordinates should not be None"
+    assert coordinates.get("latitude") == 41.9, "Latitude does not match expected value for Rome, Italy"
+    assert coordinates.get("longitude") == 12.483333, "Longitude does not match expected value for Rome, Italy"
 

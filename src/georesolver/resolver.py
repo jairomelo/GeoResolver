@@ -256,7 +256,11 @@ class TGNQuery(BaseQuery):
             self.logger.info(f"Comparing '{label}' with '{place_name} {uri}': {ratio}% similarity")
             if ratio >= fuzzy_threshold:
                 self.logger.info(f"Best match for '{place_name}': {label} ({ratio}%)")
-                return self.get_coordinates_lod_json(uri)
+                return self._post_filtering(uri,
+                                            place_name=place_name,
+                                            fuzzy_threshold=fuzzy_threshold,
+                                            confidence=ratio,
+                                            lang=lang)
 
         return None # Here's the culprit
 
