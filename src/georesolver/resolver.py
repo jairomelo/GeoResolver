@@ -1,5 +1,5 @@
 import traceback
-from typing import Union, Optional, Dict, Any, List
+from typing import Union, Optional, Dict, List
 from SPARQLWrapper import SPARQLWrapper, JSON
 from rapidfuzz import fuzz
 import os
@@ -555,6 +555,7 @@ class WikidataQuery(BaseQuery):
         try:
             response = self._limited_get(self.search_endpoint, params=params)
             search_results = response.json().get("search", [])
+            self.logger.debug(f"Wikidata search results for '{place_name}': {search_results}")
         except Exception as e:
             self.logger.error(f"Error querying Wikidata for '{place_name}': {e}")
             return []
@@ -562,14 +563,38 @@ class WikidataQuery(BaseQuery):
         if not search_results:
             return []
 
-        # Extract QIDs from search results
         qids = [result.get("id") for result in search_results if result.get("id")]
+        self.logger.debug(f"Found {len(qids)} QIDs for '{place_name}': {qids}")
         if not qids:
             return []
 
         # Batch fetch entity data for all QIDs
         entities_data = self._batch_fetch_entities(qids)
         
+        # Extract all country QIDs and administrative entity QIDs to batch fetch them too
+        country_qids = set()
+        admin_qids = set()
+        for qid in entities_data:
+            claims = entities_data[qid].get("claims", {})
+            try:
+                country_qid = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
+                country_qids.add(country_qid)
+            except (IndexError, KeyError):
+                pass
+            try:
+                admin_qid = claims.get("P131", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
+                admin_qids.add(admin_qid)
+            except (IndexError, KeyError):
+                pass
+        
+        # Batch fetch country and administrative entity data
+        country_data = {}
+        admin_data = {}
+        if country_qids:
+            country_data = self._batch_fetch_entities(list(country_qids))
+        if admin_qids:
+            admin_data = self._batch_fetch_entities(list(admin_qids))
+           
         enriched_results = []
         for result in search_results:
             qid = result.get("id")
@@ -585,7 +610,13 @@ class WikidataQuery(BaseQuery):
             if not coords or coords == (None, None):
                 continue
 
-            if country_code and not self._match_country(claims, country_code):
+            # Get country info for this place
+            place_country_qid, place_country_iso = self._get_place_country_info(claims, country_data)
+
+            # Get administrative entity info for this place
+            admin_qid, admin_label = self._get_place_admin_info(claims, admin_data, lang)
+
+            if country_code and not self._match_country_optimized(place_country_iso, country_code):
                 continue
 
             if place_type and not self._match_place_type(claims, place_type):
@@ -597,7 +628,11 @@ class WikidataQuery(BaseQuery):
                 "qid": qid,
                 "coordinates": coords,
                 "entity_data": entity_data,
-                "claims": claims
+                "claims": claims,
+                "country_qid": place_country_qid,
+                "country_iso": place_country_iso,
+                "admin_qid": admin_qid,
+                "admin_label": admin_label
             })
 
         return enriched_results
@@ -637,6 +672,44 @@ class WikidataQuery(BaseQuery):
                         entities_data[qid] = entity_data
         
         return entities_data
+
+    def _get_place_country_info(self, claims: dict, country_data: Dict[str, dict]) -> tuple:
+        """
+        Extract country QID and ISO code for a place using pre-fetched country data.
+        Returns (country_qid, country_iso_code)
+        """
+        try:
+            country_qid = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
+            if country_qid in country_data:
+                country_claims = country_data[country_qid].get("claims", {})
+                iso_code = country_claims.get("P297", [{}])[0].get("mainsnak", {}).get("datavalue", {}).get("value", "")
+                return country_qid, iso_code.upper() if iso_code else ""
+            return country_qid, ""
+        except (IndexError, KeyError):
+            return "", ""
+
+    def _get_place_admin_info(self, claims: dict, admin_data: Dict[str, dict], lang: Optional[str]) -> tuple:
+        """
+        Extract administrative entity QID and label for a place using pre-fetched admin data.
+        Returns (admin_qid, admin_label)
+        """
+        try:
+            admin_qid = claims.get("P131", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
+            if admin_qid in admin_data and lang:
+                admin_labels = admin_data[admin_qid].get("labels", {})
+                admin_label = admin_labels.get(lang, {}).get("value", "")
+                return admin_qid, admin_label
+            return admin_qid, ""
+        except (IndexError, KeyError):
+            return "", ""
+
+    def _match_country_optimized(self, place_country_iso: str, target_country_code: str) -> bool:
+        """
+        Optimized country matching using pre-extracted ISO codes.
+        """
+        if not place_country_iso or not target_country_code:
+            return False
+        return place_country_iso.upper() == target_country_code.upper()
 
     def _fetch_entity_data(self, qid: str) -> dict:
         try:
@@ -694,29 +767,13 @@ class WikidataQuery(BaseQuery):
         entity_data = results.get("entity_data", {})
         claims = results.get("claims", {})
         
-        # Extract country code from entity labels if available
-        country_code = ""
-        try:
-            country_entity_id = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
-            # Try to get country label from the entity data we already have
-            country_labels = entity_data.get("labels", {})
-            if lang in country_labels:
-                # For country code, we'd need to fetch the actual ISO code
-                # For now, we'll leave it empty to avoid additional requests
-                pass
-        except Exception:
-            pass
+        # Use pre-extracted country and administrative entity information
+        country_code = results.get("country_iso", "")
+        admin_qid = results.get("admin_qid", "")
+        admin_label = results.get("admin_label", "")
         
-        # Extract part_of information from entity labels if available
-        part_of = ""
-        part_of_uri = ""
-        try:
-            admin_entity_id = claims.get("P131", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
-            part_of_uri = f"https://www.wikidata.org/entity/{admin_entity_id}"
-            # We'd need the admin entity data to get the label, which we don't have in batch
-            # For now, we'll use the QID as identifier
-        except Exception:
-            pass
+        # Build part_of_uri if we have admin_qid
+        part_of_uri = f"https://www.wikidata.org/entity/{admin_qid}" if admin_qid else ""
 
         return {
             "place": place_name,
@@ -728,7 +785,7 @@ class WikidataQuery(BaseQuery):
             "id": qid,
             "uri": f"https://www.wikidata.org/entity/{qid}",
             "country_code": country_code,
-            "part_of": part_of,
+            "part_of": admin_label,
             "part_of_uri": part_of_uri,
             "confidence": confidence,
             "threshold": fuzzy_threshold,
@@ -743,7 +800,9 @@ class WikidataQuery(BaseQuery):
             return (None, None)
 
     def _match_country(self, claims: dict, iso_code: str) -> bool:
-        # TODO: Optimize this to use batch-fetched data instead of individual requests
+        # DEPRECATED: Use _match_country_optimized instead
+        # This method is kept for backward compatibility but should not be used
+        # in the optimized workflow as it makes individual HTTP requests
         try:
             country_entity = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
             url = f"{self.entitydata_endpoint}{country_entity}.json"
