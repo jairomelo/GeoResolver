@@ -8,11 +8,11 @@
 
 # Georesolver
 
-GeoResolver is a lightweight Python library for resolving place names into geographic coordinates using multiple gazetteer services, including [GeoNames](https://www.geonames.org/), [WHG](https://whgazetteer.org/), [Wikidata](https://www.wikidata.org/wiki/Wikidata:Main_Page), and [TGN](https://www.getty.edu/research/tools/vocabularies/tgn/).
+GeoResolver is a lightweight Python library for resolving place names into geographic coordinates and related metadata using multiple gazetteer services, including [GeoNames](https://www.geonames.org/), [WHG](https://whgazetteer.org/), [Wikidata](https://www.wikidata.org/wiki/Wikidata:Main_Page), and [TGN](https://www.getty.edu/research/tools/vocabularies/tgn/).
 
-The goal is to provide a simple interface for converting place names into latitude and longitude coordinates. The library was created to address the common need in datasets, archival collections, and manually curated records to disambiguate or complete place names, and to efficiently resolve them into coordinates.
+The library provides a unified interface and standardized response format across sources, making it easier to disambiguate, enrich, or geocode place names—especially in datasets, archival collections, and manually curated records.
 
-> GeoResolver is particularly useful for geocoding historical or legacy datasets, where place names are often inconsistent, ambiguous, or obsolete. It is not intended to replace tools like Geopy for general-purpose geocoding. Instead, GeoResolver complements them by offering a focused solution based on authoritative gazetteers tailored for academic and archival contexts.
+> GeoResolver is particularly useful for historical or legacy datasets, where place names may be inconsistent, ambiguous, or obsolete. It is not intended to replace tools like Geopy for general-purpose geocoding. Instead, GeoResolver complements them by offering a targeted approach based on authoritative gazetteers, tailored for academic, historical, and archival contexts.
 
 ## How it works
 
