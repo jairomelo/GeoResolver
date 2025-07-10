@@ -221,10 +221,6 @@ class WHGQuery(BaseQuery):
             place_type (str): Feature class according to Linked Places Format. Default is 'p' for place. Look at https://github.com/LinkedPasts/linked-places-format for more places classes.
         """
         
-        if not place_name or not isinstance(place_name, str):
-            raise ValueError("place_name must be a non-empty string")
-        if country_code and (not isinstance(country_code, str) or len(country_code) != 2):
-            raise ValueError("country_code must be a valid 2-letter country code")
         if not place_type:
             self.logger.debug("No place_type provided, defaulting to 'p' for place type.")
             place_type = "p"
@@ -678,7 +674,7 @@ class PlaceResolver:
 
         Args:
             place_name (str): The place name to search
-            country_code (str): ISO country code (optional)
+            country_code (str): ISO 3166-1 alpha-2 country code (optional)
             place_type (str): Place type (optional)
             use_default_filter (bool): If True, apply a default filter as fallback in case the place_type is not found.
                                         If no place_type is provided, no filtering will be applied.
@@ -686,6 +682,16 @@ class PlaceResolver:
         Returns:
             tuple: (lat, lon) or (None, None) if not found
         """
+
+        if not place_name or not isinstance(place_name, str):
+            self.logger.error("place_name must be a non-empty string")
+            return None
+
+        place_name = place_name.strip()
+
+        if pycountry.countries.get(alpha_2=country_code) is None and country_code is not None:
+            self.logger.warning(f"Invalid country code: {country_code}\nLook at the correct ISO 3166-1 alpha-2 country codes at https://www.iso.org/iso-3166-country-codes.html")
+            country_code = None
 
         if self.flexible_threshold and len(place_name) < 5:
             self.logger.warning(
