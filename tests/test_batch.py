@@ -4,11 +4,11 @@ import pandas as pd
 def test_batch_resolver_series():
     service = [GeoNamesQuery(), WHGQuery(), WikidataQuery(), TGNQuery()]
     df = pd.DataFrame({
-        "place": ["Berlin", "Madrid", "Rome"],
-        "country": ["DE", "ES", "IT"],
-        "type": ["city", "city", "city"]
+        "place": ["Berlín", "Madrid", "Roma", "Antequera"],
+        "country": ["DE", "ES", "IT", "MX"],
+        "type": ["city", "city", "city", "city"]
     })
-    resolver = PlaceResolver(service, threshold=75, verbose=True)
+    resolver = PlaceResolver(service, threshold=75, verbose=True, lang="es")  # Set language to Spanish
     results = resolver.resolve_batch(df, 
                                      place_column="place", 
                                      country_column="country", 
