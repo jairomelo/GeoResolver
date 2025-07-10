@@ -235,7 +235,7 @@ class TGNQuery(BaseQuery):
                 "match_type": "exact" if confidence == 100 else "fuzzy"
             }
 
-    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = "en") -> dict:
+    def get_best_match(self, results: Union[dict, list], place_name: str, fuzzy_threshold: float, lang: Optional[str] = "en") -> Union[dict, None]:
         if not results:
             self.logger.debug(f"No results found for '{place_name}' in TGN.")
             return None
@@ -262,7 +262,9 @@ class TGNQuery(BaseQuery):
                                             confidence=ratio,
                                             lang=lang)
 
-        return None # Here's the culprit
+        self.logger.debug(f"No suitable match found for '{place_name}' in TGN.")
+        return None
+
 
 class WHGQuery(BaseQuery):
     """
@@ -729,7 +731,7 @@ class PlaceResolver:
                 place_name: str, 
                 country_code: Union[str, None] = None, 
                 place_type: Union[str, None] = None,
-               use_default_filter: bool = False) -> tuple:
+               use_default_filter: bool = False) -> Union[dict, None]:
         """
         Try resolving the place coordinates using multiple sources.
 
@@ -773,15 +775,15 @@ class PlaceResolver:
                         )
 
                 results = service.places_by_name(place_name, country_code, resolved_type, lang=self.lang)
-                coords = service.get_best_match(results, place_name, fuzzy_threshold=threshold, lang=self.lang)
-                if coords != (None, None):
-                    self.logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {coords}")
-                    return coords
+                result = service.get_best_match(results, place_name, fuzzy_threshold=threshold, lang=self.lang)
+                if result:
+                    self.logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {result}")
+                    return result
             except Exception as e:
                 traceback_str = traceback.format_exc()
                 self.logger.warning(f"{service.__class__.__name__} failed for '{place_name}': {e}\n{traceback_str}")
         self.logger.warning(f"Could not resolve '{place_name}' via any service.")
-        return (None, None)
+        return None
 
     def resolve_batch(
             self,
