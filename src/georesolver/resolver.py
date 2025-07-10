@@ -127,6 +127,8 @@ class GeoNamesQuery(BaseQuery):
                 "id": results["geonameId"],
                 "uri": f"http://sws.geonames.org/{results['geonameId']}/",
                 "country_code": results.get("countryCode", ""),
+                "part_of": "",
+                "part_of_uri": "",
                 "confidence": confidence,
                 "threshold": fuzzy_threshold,
                 "match_type": "exact" if confidence == 100 else "fuzzy"
@@ -333,7 +335,7 @@ class WHGQuery(BaseQuery):
             place_name: str,
             fuzzy_threshold: float,
             confidence: float,
-            lang: Optional[str] = "en") -> dict:
+            lang: Optional[str] = "en") -> Union[dict, None]:
         """
         Returns the dictionary customized to the WHG API results.
         """
