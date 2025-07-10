@@ -251,6 +251,7 @@ class WHGQuery(BaseQuery):
                        lang: Optional[str] = None) -> Union[dict, None]:
 
         self.logger.info(f"Finding best match for '{place_name}' in WHG results")
+        self.logger.debug(f"Results: {results}")
 
         try:
             features = results.get("features", []) if isinstance(results, dict) else []
@@ -265,24 +266,13 @@ class WHGQuery(BaseQuery):
                 ratio = fuzz.ratio(name.lower(), place_name.lower())
                 self.logger.info(f"Comparing '{name}' with '{place_name}': {ratio}% similarity")
                 if ratio >= fuzzy_threshold:
-                    geometry = r.get("geometry", {})
-                    if geometry.get("type") == "GeometryCollection":
-                        self.logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first valid point.")
-
-                        coordinates = None
-                        for geom in geometry.get("geometries", []):
-                            if geom.get("type") == "Point":
-                                coordinates = geom.get("coordinates")
-                                break
-                        if not coordinates:
-                            self.logger.warning(f"No valid Point found in GeometryCollection for '{place_name}'.")
-                            continue
-                        
-                    else:
-                        coordinates = geometry.get("coordinates")
-                    if coordinates and len(coordinates) == 2:
-                        self.logger.info(f"Best match for '{place_name}': {name} ({ratio}%)")
-                        return coordinates[1], coordinates[0] # TODO: Implement proper response structure
+                    return self._post_filtering(
+                        results=r,
+                        place_name=place_name,
+                        fuzzy_threshold=fuzzy_threshold,
+                        confidence=ratio,
+                        lang=lang
+                    )
 
             return None
         
@@ -318,6 +308,58 @@ class WHGQuery(BaseQuery):
 
         return {"features": filtered}
 
+    def get_coordinates_lod_json(self, geometry: dict, place_name: str) -> Union[list, None]:
+        """
+        Extracts geographic coordinates from the WHG API response.
+        """
+
+        if geometry.get("type") == "GeometryCollection":
+            self.logger.warning(f"Best match for '{place_name}' is a GeometryCollection. Taking the first valid point.")
+
+            coordinates = None
+            for geom in geometry.get("geometries", []):
+                if geom.get("type") == "Point":
+                    coordinates = geom.get("coordinates")
+                    break
+            if not coordinates:
+                self.logger.warning(f"No valid Point found in GeometryCollection for '{place_name}'.")
+                return None
+        else:
+            return geometry.get("coordinates", [])
+
+    def _post_filtering(
+            self,
+            results: dict,
+            place_name: str,
+            fuzzy_threshold: float,
+            confidence: float,
+            lang: Optional[str] = "en") -> dict:
+        """
+        Returns the dictionary customized to the WHG API results.
+        """
+        self.logger.debug(f"Post-filtering WHG results for '{place_name}' with language '{lang}'\n{results}")
+
+        geometry = results.get("geometry", {})
+        coordinates = self.get_coordinates_lod_json(geometry, place_name)
+        if coordinates and len(coordinates) == 2:
+            name = results.get("properties", {}).get("title", "")
+            self.logger.info(f"Best match for '{place_name}': {name} ({confidence}%)")
+            return {
+                "place": place_name,
+                "standardize_label": name,
+                "language": lang,
+                "latitude": float(coordinates[1]),
+                "longitude": float(coordinates[0]),
+                "source": "WHG",
+                "id": results.get("properties", {}).get("index_id", ""),
+                "uri": f"https://whgazetteer.org/places/{results.get('properties', {}).get('index_id', '')}/portal/",
+                "country_code": results.get("properties", {}).get("ccodes", [])[0] if results.get("properties", {}).get("ccodes") else "",
+                "part_of": "",
+                "part_of_uri": "",
+                "confidence": confidence,
+                "threshold": fuzzy_threshold,
+                "match_type": "exact" if confidence == 100 else "fuzzy"
+            }
 
 class TGNQuery(BaseQuery):
     """
