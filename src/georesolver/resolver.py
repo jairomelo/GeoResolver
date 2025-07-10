@@ -654,8 +654,26 @@ class PlaceResolver:
     """
     A unified resolver that queries multiple geolocation services in order
     and returns the first match with valid coordinates.
+
+    Args:
+            services (Optional[List[BaseQuery]]): List of geolocation service instances to use.
+            places_map_json (Union[str, None]): Path to a custom places mapping JSON file.
+            lang (Optional[str]): Language code for place type filtering.
+            threshold (float): Fuzzy matching threshold for place name similarity.
+            flexible_threshold (bool): If True, use a lower threshold for shorter place names.
+            flexible_threshold_value (float): The threshold value to use when flexible_threshold is True.
+                                                If no value is provided, it defaults to 70.
+            verbose (bool): If True, enable verbose logging.
+
     """
-    def __init__(self, services: Optional[List[BaseQuery]] = None, places_map_json: Union[str, None] = None, lang: Optional[str] = None, threshold: float = 90, verbose: bool = False):
+    def __init__(self, 
+                 services: Optional[List[BaseQuery]] = None, 
+                 places_map_json: Union[str, None] = None, 
+                 lang: Optional[str] = None, 
+                 threshold: float = 90,
+                 flexible_threshold: bool = False,
+                 flexible_threshold_value: float = 70, 
+                 verbose: bool = False):
 
         self.logger = setup_logger(self.__class__.__name__, verbose)
         
@@ -670,7 +688,20 @@ class PlaceResolver:
         self.services = services
         self.places_map = self._load_places_map(places_map_json)
         self.lang = lang if lang else "en"
+
+        if not (0 <= threshold <= 100):
+            raise ValueError("threshold must be between 0 and 100")
+        
         self.threshold = threshold
+
+        self.flexible_threshold = flexible_threshold
+        if self.flexible_threshold:
+            if not (0 <= flexible_threshold_value <= 100):
+                raise ValueError("flexible_threshold_value must be between 0 and 100")
+            
+            self.flexible_threshold_value = flexible_threshold_value
+        
+        
 
         for service in self.services:
             service.logger = setup_logger(service.__class__.__name__, verbose)
@@ -690,7 +721,10 @@ class PlaceResolver:
             return {}
 
 
-    def resolve(self, place_name: str, country_code: Union[str, None] = None, place_type: Union[str, None] = None,
+    def resolve(self, 
+                place_name: str, 
+                country_code: Union[str, None] = None, 
+                place_type: Union[str, None] = None,
                use_default_filter: bool = False) -> tuple:
         """
         Try resolving the place coordinates using multiple sources.
@@ -705,6 +739,15 @@ class PlaceResolver:
         Returns:
             tuple: (lat, lon) or (None, None) if not found
         """
+
+        if self.flexible_threshold and len(place_name) < 5:
+            self.logger.warning(
+                f"Using flexible threshold for short place name: '{place_name}'"
+            )
+            threshold = self.flexible_threshold_value
+        else:
+            threshold = self.threshold
+
         for service in self.services:
             try:
                 self.logger.info(f"Trying {service.__class__.__name__} for '{place_name}'")
@@ -726,7 +769,7 @@ class PlaceResolver:
                         )
 
                 results = service.places_by_name(place_name, country_code, resolved_type, lang=self.lang)
-                coords = service.get_best_match(results, place_name, fuzzy_threshold=self.threshold, lang=self.lang)
+                coords = service.get_best_match(results, place_name, fuzzy_threshold=threshold, lang=self.lang)
                 if coords != (None, None):
                     self.logger.info(f"Resolved '{place_name}' via {service.__class__.__name__}: {coords}")
                     return coords
