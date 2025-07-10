@@ -542,6 +542,7 @@ class WikidataQuery(BaseQuery):
                        country_code: Optional[str], 
                        place_type: Optional[str] = None,
                        lang: Optional[str] = "en") -> Union[dict, list]:
+        
         params = {
             "action": "wbsearchentities",
             "search": place_name,
@@ -558,18 +559,28 @@ class WikidataQuery(BaseQuery):
             self.logger.error(f"Error querying Wikidata for '{place_name}': {e}")
             return []
 
-        enriched_results = []
+        if not search_results:
+            return []
 
+        # Extract QIDs from search results
+        qids = [result.get("id") for result in search_results if result.get("id")]
+        if not qids:
+            return []
+
+        # Batch fetch entity data for all QIDs
+        entities_data = self._batch_fetch_entities(qids)
+        
+        enriched_results = []
         for result in search_results:
             qid = result.get("id")
             label = result.get("label", "")
-
-            # Fetch entity data
-            entity_data = self._fetch_entity_data(qid)
-            if not entity_data:
+            
+            if qid not in entities_data:
                 continue
-
+                
+            entity_data = entities_data[qid]
             claims = entity_data.get("claims", {})
+            
             coords = self._extract_coordinates(claims)
             if not coords or coords == (None, None):
                 continue
@@ -580,13 +591,52 @@ class WikidataQuery(BaseQuery):
             if place_type and not self._match_place_type(claims, place_type):
                 continue
 
+            # Store all needed data for post-filtering
             enriched_results.append({
                 "label": label,
                 "qid": qid,
-                "coordinates": coords
+                "coordinates": coords,
+                "entity_data": entity_data,
+                "claims": claims
             })
 
         return enriched_results
+
+    def _batch_fetch_entities(self, qids: List[str]) -> Dict[str, dict]:
+        """
+        Batch fetch entity data for multiple QIDs using wbgetentities API.
+        This significantly reduces the number of HTTP requests compared to individual fetches.
+        """
+        entities_data = {}
+        
+        # Process QIDs in chunks of 50 (Wikidata API limit)
+        chunk_size = 50
+        for i in range(0, len(qids), chunk_size):
+            chunk = qids[i:i + chunk_size]
+            
+            params = {
+                "action": "wbgetentities",
+                "ids": "|".join(chunk),
+                "format": "json",
+                "props": "labels|claims"  # Only fetch what we need
+            }
+            
+            try:
+                response = self._limited_get(self.search_endpoint, params=params)
+                result = response.json()
+                
+                if "entities" in result:
+                    entities_data.update(result["entities"])
+                    
+            except Exception as e:
+                self.logger.warning(f"Failed to batch fetch entities {chunk}: {e}")
+                # Fallback to individual fetching for this chunk
+                for qid in chunk:
+                    entity_data = self._fetch_entity_data(qid)
+                    if entity_data:
+                        entities_data[qid] = entity_data
+        
+        return entities_data
 
     def _fetch_entity_data(self, qid: str) -> dict:
         try:
@@ -606,20 +656,84 @@ class WikidataQuery(BaseQuery):
             return None
 
         best_score = 0
-        best_coords = None
+        best_result = None
 
         for result in results:
             label = result["label"]
-            coords = result["coordinates"]
             score = max(fuzz.ratio(label.lower(), place_name.lower()),
                         fuzz.partial_ratio(label.lower(), place_name.lower()))
 
             if score > best_score and score >= fuzzy_threshold:
                 best_score = score
-                best_coords = coords
+                best_result = result
                 self.logger.info(f"Wikidata match: '{label}' → {score}%")
 
-        return best_coords if best_coords else None
+        if best_result:
+            return self._post_filtering(
+                results=best_result,
+                place_name=place_name,
+                fuzzy_threshold=fuzzy_threshold,
+                confidence=best_score,
+                lang=lang
+            )
+        
+        return None
+
+    def _post_filtering(self,
+                       results: dict,
+                       place_name: str,
+                       fuzzy_threshold: float,
+                       confidence: float,
+                       lang: Optional[str] = "en") -> dict:
+        """
+        Returns the dictionary customized to the Wikidata API results.
+        """
+        qid = results.get("qid", "")
+        label = results.get("label", "")
+        coords = results.get("coordinates", (None, None))
+        entity_data = results.get("entity_data", {})
+        claims = results.get("claims", {})
+        
+        # Extract country code from entity labels if available
+        country_code = ""
+        try:
+            country_entity_id = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
+            # Try to get country label from the entity data we already have
+            country_labels = entity_data.get("labels", {})
+            if lang in country_labels:
+                # For country code, we'd need to fetch the actual ISO code
+                # For now, we'll leave it empty to avoid additional requests
+                pass
+        except Exception:
+            pass
+        
+        # Extract part_of information from entity labels if available
+        part_of = ""
+        part_of_uri = ""
+        try:
+            admin_entity_id = claims.get("P131", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
+            part_of_uri = f"https://www.wikidata.org/entity/{admin_entity_id}"
+            # We'd need the admin entity data to get the label, which we don't have in batch
+            # For now, we'll use the QID as identifier
+        except Exception:
+            pass
+
+        return {
+            "place": place_name,
+            "standardize_label": label,
+            "language": lang,
+            "latitude": float(coords[0]) if coords[0] is not None else None,
+            "longitude": float(coords[1]) if coords[1] is not None else None,
+            "source": "Wikidata",
+            "id": qid,
+            "uri": f"https://www.wikidata.org/entity/{qid}",
+            "country_code": country_code,
+            "part_of": part_of,
+            "part_of_uri": part_of_uri,
+            "confidence": confidence,
+            "threshold": fuzzy_threshold,
+            "match_type": "exact" if confidence == 100 else "fuzzy"
+        }
 
     def _extract_coordinates(self, claims: dict) -> tuple:
         try:
@@ -629,6 +743,7 @@ class WikidataQuery(BaseQuery):
             return (None, None)
 
     def _match_country(self, claims: dict, iso_code: str) -> bool:
+        # TODO: Optimize this to use batch-fetched data instead of individual requests
         try:
             country_entity = claims.get("P17", [])[0]["mainsnak"]["datavalue"]["value"]["id"]
             url = f"{self.entitydata_endpoint}{country_entity}.json"
