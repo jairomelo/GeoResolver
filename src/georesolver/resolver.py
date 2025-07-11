@@ -967,10 +967,9 @@ class PlaceResolver:
             country_column: Union[str, None] = None,
             place_type_column: Union[str, None] = None,
             use_default_filter: bool = False,
-            return_split: bool = False,
-            return_list: bool = False,
+            return_df: bool = True,
             show_progress: bool = True
-    ) -> Union[pd.Series, pd.DataFrame, List[tuple]]:
+    ) -> Union[pd.DataFrame, List[dict]]:
         """
         Resolve coordinates for a batch of places from a DataFrame.
 
@@ -979,14 +978,15 @@ class PlaceResolver:
             place_column (str): Column name for place names.
             country_column (str): Column name for country codes (optional).
             place_type_column (str): Column name for place types (optional).
-            return_split (bool): If True, return separate 'lat' and 'lon' columns.
-            return_list (bool): If True, return a list of (lat, lon) tuples instead of a Series or DataFrame.
+            return_df (bool): If True, return a DataFrame with separate columns for each attribute. Otherwise, return a list of dictionaries.
+            show_progress (bool): If True, show a progress bar during processing.
 
         Raises:
             ValueError: If the input DataFrame is not valid or required columns are missing.
 
         Returns:
-            pd.Series or pd.DataFrame: A Series of (lat, lon) tuples or a DataFrame with 'lat' and 'lon' columns.
+            pd.DataFrame: A DataFrame with resolved coordinates and metadata.
+            List[dict]: A list of dictionaries with resolved coordinates and metadata if return_df is False.
         """
         #TODO: 
         # - Gently handle NaN and empty strings in place_column
@@ -1025,10 +1025,8 @@ class PlaceResolver:
             )
 
             results.append(coords)
-            
-        if return_split:
-            return pd.DataFrame(results, columns=["lat", "lon"], index=df.index)
-        elif return_list:
-            return [coord if isinstance(coord, tuple) and len(coord) == 2 else (None, None) for coord in results]
+
+        if return_df:
+            return pd.DataFrame(results, columns=["place", "standardize_label", "language", "latitude", "longitude", "source", "place_id", "place_uri", "country_code", "part_of", "part_of_uri", "confidence", "threshold", "match_type"], index=df.index)
         else:
-            return pd.Series(results, name="coordinates")
+            return results
