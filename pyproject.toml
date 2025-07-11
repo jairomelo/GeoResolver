@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "georesolver"
-version = "0.2.0"
+version = "0.2.1"
 description = "Multi-source place name to coordinates resolver using TGN, WHG, GeoNames, and Wikidata"
 authors = [
   {name="Jairo Antonio Melo Florez", email="jairoantoniomelo@gmail.com"}
