@@ -5,6 +5,12 @@
     "tgn": "inhabited places",
     "whg": "p"
   },
+  "inhabited places": {
+    "geonames": "PPL",
+    "wikidata": "Q532",
+    "tgn": "inhabited places",
+    "whg": "p"
+  },
   "village": {
     "geonames": "P",
     "wikidata": "Q532", 
