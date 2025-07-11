@@ -55,3 +55,11 @@ Documentation = "https://jairomelo.com/Georesolver/"
 
 [tool.setuptools.package-data]
 "georesolver" = ["data/mappings/places_map.json"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-cov",
+  "mypy",
+  "ruff"
+]
