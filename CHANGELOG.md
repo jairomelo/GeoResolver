@@ -13,10 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `part_of` and `part_of_uri` fields to GeoNamesQuery results for hierarchical location data
 - `pycountry` dependency for improved country code validation and name conversion
 - Comprehensive validation for place_name and country_code parameters
+- Enhanced WikidataQuery with country and administrative entity data retrieval capabilities
+- Comprehensive changelog documentation
 
 ### Changed
 - **BREAKING**: Moved BaseQuery class outside of resolver.py for better modularity
 - **BREAKING**: Updated method signatures and return types to match base class interface
+- **BREAKING**: Large refactor of core architecture and data structures
+- Updated PlaceResolver to improve return types and handling of DataFrame outputs
 - Refactored WHGQuery to return enhanced, structured results
 - Improved TGNQuery SPARQL queries for better data retrieval
 - Updated GeoNamesQuery to handle alternate names more effectively
@@ -31,12 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected GeoNames place type mappings for villages and cities
 - Enhanced TGNQuery SPARQL query reliability
 - Improved validation and error handling across all query classes
+- WikidataQuery now properly matches BaseQuery abstract methods
 
 ### Tests
+- Enhanced batch resolver tests for result validation and output formatting
 - Updated test_whg_query to use London and validate coordinates structure
 - Added Spanish language support tests for batch resolver functionality
 - Corrected country code for Rome in TGNQuery tests
 - Enhanced test coverage for new language support features
+- Updated WikidataQuery tests for response validation
 
 ### Documentation
 - Updated README to emphasize GeoResolver's utility for historical geocoding
