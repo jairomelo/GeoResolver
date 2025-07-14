@@ -114,3 +114,38 @@ def test_batch_resolver_list():
             assert 'longitude' in result, "Result should contain longitude"
             assert isinstance(result['latitude'], (int, float)), "Latitude should be numeric"
             assert isinstance(result['longitude'], (int, float)), "Longitude should be numeric"
+
+
+def test_batch_real_df(csv_path="tests/data/bautismos_cleaned.csv"):
+    df = pd.read_csv(csv_path)
+    resolver = PlaceResolver([GeoNamesQuery(), WHGQuery()],
+                            verbose=True, lang="es")
+    results_df = resolver.resolve_batch(df,
+                                        place_column="Descriptor Geográfico 2",
+                                        show_progress=True)
+    print(f"\n=== Real DataFrame Results ===")
+    print("Results DataFrame:")
+    print(results_df.head())
+
+    assert isinstance(results_df, pd.DataFrame), "Results should be a DataFrame"
+    assert 'latitude' in results_df.columns, "Results DataFrame should contain latitude"
+    assert 'longitude' in results_df.columns, "Results DataFrame should contain longitude"
+    
+    # Check that we have at least some successful results
+    successful_results = results_df.dropna(subset=['latitude', 'longitude'])
+    assert len(successful_results) > 0, "Should have at least some successful coordinate resolutions"
+    
+    # Print some statistics about the results
+    total_places = len(results_df)
+    resolved_places = len(successful_results)
+    resolution_rate = (resolved_places / total_places) * 100
+    print(f"Resolution statistics: {resolved_places}/{total_places} places resolved ({resolution_rate:.1f}%)")
+    
+    # Show some examples of successful and failed resolutions
+    print("\nSuccessful resolutions:")
+    print(successful_results[['place', 'standardize_label', 'latitude', 'longitude', 'source']].head())
+    
+    failed_places = results_df[results_df['latitude'].isnull()]
+    if len(failed_places) > 0:
+        print(f"\nFailed to resolve {len(failed_places)} places:")
+        print(failed_places['place'].unique()[:10])  # Show first 10 unresolved places
