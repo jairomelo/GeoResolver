@@ -118,10 +118,16 @@ def test_batch_resolver_list():
 
 def test_batch_real_df(csv_path="tests/data/bautismos_cleaned.csv"):
     df = pd.read_csv(csv_path)
+
+    df["country_code"] = "PE" 
+    df["place_type"] = "city" 
+
     resolver = PlaceResolver([GeoNamesQuery(), WHGQuery()],
                             verbose=True, lang="es")
     results_df = resolver.resolve_batch(df,
                                         place_column="Descriptor Geográfico 2",
+                                        country_column="country_code",
+                                        place_type_column="place_type",
                                         show_progress=True)
     print(f"\n=== Real DataFrame Results ===")
     print("Results DataFrame:")
@@ -144,7 +150,7 @@ def test_batch_real_df(csv_path="tests/data/bautismos_cleaned.csv"):
     # Show some examples of successful and failed resolutions
     print("\nSuccessful resolutions:")
     print(successful_results[['place', 'standardize_label', 'latitude', 'longitude', 'source']].head())
-    
+
     failed_places = results_df[results_df['latitude'].isnull()]
     if len(failed_places) > 0:
         print(f"\nFailed to resolve {len(failed_places)} places:")
