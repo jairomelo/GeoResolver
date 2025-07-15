@@ -3,7 +3,7 @@
 ![CI](https://github.com/jairomelo/GeoResolver/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/pypi/l/georesolver)
 ![Downloads](https://static.pepy.tech/badge/georesolver)
-[![Documentation](https://img.shields.io/badge/docs-online-blue)](https://jairomelo.com/Georesolver/)
+[![Documentation](https://img.shields.io/badge/docs-online-blue)](http://jairomelo.com/GeoResolver/)
 [![Issues](https://img.shields.io/github/issues/jairomelo/Georesolver)](https://github.com/jairomelo/Georesolver/issues)
 
 
