@@ -149,7 +149,7 @@ def test_batch_real_df(csv_path="tests/data/bautismos_cleaned.csv"):
     
     # Show some examples of successful and failed resolutions
     print("\nSuccessful resolutions:")
-    print(successful_results[['place', 'standardize_label', 'latitude', 'longitude', 'source']].head())
+    print(successful_results[['place', 'country_code', 'standardize_label', 'latitude', 'longitude', 'source']].head())
 
     failed_places = results_df[results_df['latitude'].isnull()]
     if len(failed_places) > 0:

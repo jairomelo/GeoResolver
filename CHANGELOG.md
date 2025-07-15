@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.2] - 2025-07-14
+
+### Added
+- GitHub Actions CI workflow for automated testing and validation
+- Enhanced development dependencies in pyproject.toml for better development experience
+
+### Changed
+- **PERFORMANCE**: Batch resolver now processes only unique values, significantly reducing API requests and improving performance
+- Updated README with CI status badge
+
+### Tests
+- Enhanced batch resolver tests with country_code and place_type columns for improved resolution testing
+- Added comprehensive test coverage for unique value processing functionality
+
+---
+
 ## [v0.2.1] - 2025-07-10
 
 ### Added
