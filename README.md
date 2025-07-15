@@ -1,12 +1,13 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/georesolver)
 ![Python Versions](https://img.shields.io/pypi/pyversions/georesolver)
+![CI](https://github.com/jairomelo/GeoResolver/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/pypi/l/georesolver)
 ![Downloads](https://static.pepy.tech/badge/georesolver)
 [![Documentation](https://img.shields.io/badge/docs-online-blue)](https://jairomelo.com/Georesolver/)
 [![Issues](https://img.shields.io/github/issues/jairomelo/Georesolver)](https://github.com/jairomelo/Georesolver/issues)
 
 
-# Georesolver
+# GeoResolver
 
 GeoResolver is a lightweight Python library for resolving place names into geographic coordinates and related metadata using multiple gazetteer services, including [GeoNames](https://www.geonames.org/), [WHG](https://whgazetteer.org/), [Wikidata](https://www.wikidata.org/wiki/Wikidata:Main_Page), and [TGN](https://www.getty.edu/research/tools/vocabularies/tgn/).
 

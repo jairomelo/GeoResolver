@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "georesolver"
-version = "0.2.1"
+version = "0.2.2"
 description = "Multi-source place name to coordinates resolver using TGN, WHG, GeoNames, and Wikidata"
 authors = [
   {name="Jairo Antonio Melo Florez", email="jairoantoniomelo@gmail.com"}
@@ -55,3 +55,11 @@ Documentation = "https://jairomelo.com/Georesolver/"
 
 [tool.setuptools.package-data]
 "georesolver" = ["data/mappings/places_map.json"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-cov",
+  "mypy",
+  "ruff"
+]

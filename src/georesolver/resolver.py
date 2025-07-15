@@ -917,9 +917,12 @@ class PlaceResolver:
 
         place_name = place_name.strip()
 
-        if pycountry.countries.get(alpha_2=country_code) is None and country_code is not None:
-            self.logger.warning(f"Invalid country code: {country_code}\nLook at the correct ISO 3166-1 alpha-2 country codes at https://www.iso.org/iso-3166-country-codes.html")
-            country_code = None
+        try:
+            if pycountry.countries.get(alpha_2=country_code) is None and country_code is not None:
+                self.logger.warning(f"Invalid country code: {country_code}\nLook at the correct ISO 3166-1 alpha-2 country codes at https://www.iso.org/iso-3166-country-codes.html")
+                country_code = None
+        except Exception as e:
+            self.logger.info(f"Error occurred while validating country code: {e}")
 
         if self.flexible_threshold and len(place_name) < 5:
             self.logger.warning(
@@ -972,12 +975,16 @@ class PlaceResolver:
     ) -> Union[pd.DataFrame, List[dict]]:
         """
         Resolve coordinates for a batch of places from a DataFrame.
+        
+        This method optimizes API calls by processing only unique combinations of 
+        place_name, country_code, and place_type, then mapping results back to the original DataFrame.
 
         Args:
             df (pd.DataFrame): Input DataFrame with place names and optional country/type columns.
             place_column (str): Column name for place names.
             country_column (str): Column name for country codes (optional).
             place_type_column (str): Column name for place types (optional).
+            use_default_filter (bool): If True, apply a default filter as fallback.
             return_df (bool): If True, return a DataFrame with separate columns for each attribute. Otherwise, return a list of dictionaries.
             show_progress (bool): If True, show a progress bar during processing.
 
@@ -988,11 +995,6 @@ class PlaceResolver:
             pd.DataFrame: A DataFrame with resolved coordinates and metadata.
             List[dict]: A list of dictionaries with resolved coordinates and metadata if return_df is False.
         """
-        #TODO: 
-        # - Gently handle NaN and empty strings in place_column
-        # - Process data in chunks of 100 rows
-        # - Only process records with valid place names (non-empty strings)
-        # - Sort Series 
 
         if not isinstance(df, pd.DataFrame):
             raise ValueError("Input must be a pandas DataFrame")
@@ -1006,27 +1008,123 @@ class PlaceResolver:
         if place_type_column and place_type_column not in df.columns:
             raise ValueError(f"Column '{place_type_column}' not found in DataFrame")
         
+        # Create a copy of the input DataFrame to avoid modifying the original
+        df_copy = df.copy()
+        
+        # Handle NaN and empty values in place_column
+        df_copy[place_column] = df_copy[place_column].fillna("").astype(str)
+        
+        # Filter out rows with empty place names
+        valid_mask = df_copy[place_column].str.strip() != ""
+        df_valid = df_copy[valid_mask].copy()
+        
+        if df_valid.empty:
+            self.logger.warning("No valid place names found in the DataFrame")
+            if return_df:
+                # Return empty results DataFrame with proper structure
+                empty_results = pd.DataFrame({
+                    "place": None, "standardize_label": None, "language": None,
+                    "latitude": None, "longitude": None, "source": None,
+                    "id": None, "uri": None, "country_code": None,
+                    "part_of": None, "part_of_uri": None, "confidence": None,
+                    "threshold": None, "match_type": None
+                }, index=df.index)
+                return empty_results
+            else:
+                # Return list of None values, properly typed for the Union return type
+                return [None] * len(df)  # type: ignore
+        
+        # Create unique combinations for processing
+        lookup_columns = [place_column]
+        if country_column:
+            df_valid[country_column] = df_valid[country_column].fillna("")
+            lookup_columns.append(country_column)
+        if place_type_column:
+            df_valid[place_type_column] = df_valid[place_type_column].fillna("")
+            lookup_columns.append(place_type_column)
+        
+        # Get unique combinations
+        unique_combinations = df_valid[lookup_columns].drop_duplicates().reset_index(drop=True)
+        
+        # Log optimization info
+        original_count = len(df_valid)
+        unique_count = len(unique_combinations)
+        reduction_pct = ((original_count - unique_count) / original_count * 100) if original_count > 0 else 0
+        self.logger.info(f"Processing {unique_count} unique combinations instead of {original_count} rows "
+                        f"({reduction_pct:.1f}% reduction in API calls)")
+        
+        # Process unique combinations
         if show_progress:
-            df_iter = tqdm(df.iterrows(), total=len(df))
+            unique_iter = tqdm(unique_combinations.iterrows(), 
+                             total=len(unique_combinations),
+                             desc="Resolving unique places")
         else:
-            df_iter = df.iterrows()
+            unique_iter = unique_combinations.iterrows()
 
-        results = []
-        for _, row in df_iter:
-            place_name = row.get(place_column, "")
-            country_code = row.get(country_column) if country_column else None
-            place_type = row.get(place_type_column) if place_type_column else None
-
-            coords = self.resolve(
+        # Store results for unique combinations
+        unique_results = {}
+        
+        for _, row in unique_iter:
+            place_name = row[place_column].strip()
+            country_code = row.get(country_column, None) if country_column else None
+            place_type = row.get(place_type_column, None) if place_type_column else None
+            
+            # Convert empty strings to None for consistency
+            country_code = country_code if country_code and country_code.strip() else None
+            place_type = place_type if place_type and place_type.strip() else None
+            
+            # Create a key for the combination
+            key = (place_name, country_code or "", place_type or "")
+            
+            result = self.resolve(
                 place_name=place_name,
                 country_code=country_code,
                 place_type=place_type,
                 use_default_filter=use_default_filter
             )
-
-            results.append(coords)
+            
+            unique_results[key] = result
+        
+        # Map results back to original DataFrame
+        results = []
+        for idx in df.index:
+            if idx in df_valid.index:
+                row = df_valid.loc[idx]
+                place_name = row[place_column].strip()
+                country_code = row.get(country_column, None) if country_column else None
+                place_type = row.get(place_type_column, None) if place_type_column else None
+                
+                # Convert empty strings to None for key matching
+                country_code = country_code if country_code and country_code.strip() else None
+                place_type = place_type if place_type and place_type.strip() else None
+                
+                key = (place_name, country_code or "", place_type or "")
+                result = unique_results.get(key)
+            else:
+                # For rows with invalid place names, return None
+                result = None
+            
+            results.append(result)
 
         if return_df:
-            return pd.DataFrame(results, columns=["place", "standardize_label", "language", "latitude", "longitude", "source", "place_id", "place_uri", "country_code", "part_of", "part_of_uri", "confidence", "threshold", "match_type"], index=df.index)
+            # Fill None results with a default structure before creating DataFrame
+            default_result = {
+                "place": None, "standardize_label": None, "language": None, 
+                "latitude": None, "longitude": None, "source": None, 
+                "id": None, "uri": None, "country_code": None, 
+                "part_of": None, "part_of_uri": None, "confidence": None, 
+                "threshold": None, "match_type": None
+            }
+            
+            # Expand dictionary results into separate columns
+            expanded_results = []
+            for result in results:
+                if result is None:
+                    expanded_results.append(default_result)
+                else:
+                    expanded_results.append(result)
+            
+            results_df = pd.DataFrame(expanded_results, index=df.index)
+            return results_df
         else:
             return results
