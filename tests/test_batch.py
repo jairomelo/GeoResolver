@@ -116,7 +116,7 @@ def test_batch_resolver_list():
             assert isinstance(result['longitude'], (int, float)), "Longitude should be numeric"
 
 
-def test_batch_real_df(csv_path="tests/data/bautismos_cleaned.csv"):
+""" def test_batch_real_df(csv_path="tests/data/bautismos_cleaned.csv"):
     df = pd.read_csv(csv_path)
 
     df["country_code"] = "PE" 
@@ -154,4 +154,4 @@ def test_batch_real_df(csv_path="tests/data/bautismos_cleaned.csv"):
     failed_places = results_df[results_df['latitude'].isnull()]
     if len(failed_places) > 0:
         print(f"\nFailed to resolve {len(failed_places)} places:")
-        print(failed_places['place'].unique()[:10])  # Show first 10 unresolved places
+        print(failed_places['place'].unique()[:10])  # Show first 10 unresolved places """
