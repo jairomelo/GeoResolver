@@ -3,6 +3,9 @@ from typing import Union, Optional, Dict, Any
 from ratelimit import limits, sleep_and_retry
 import requests
 import requests_cache
+import os
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from georesolver.utils.LoggerHandler import setup_logger
 
 class BaseQuery(ABC):
@@ -24,6 +27,27 @@ class BaseQuery(ABC):
         self.base_url = base_url.rstrip("/")
         self.calls, self.period = rate_limit
 
+        # A non-default User-Agent is required by some services (e.g., Wikidata/WHG).
+        custom_ua = os.getenv("GEORESOLVER_USER_AGENT", "georesolver/0.2 (+https://pypi.org/project/georesolver)")
+        self.default_headers = {
+            "User-Agent": custom_ua,
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+
+        self.session = requests.Session()
+        self.session.headers.update(self.default_headers)
+
+        retry = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods={"GET"}
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
         if enable_cache:
             requests_cache.install_cache(cache_name, expire_after=cache_expiry)
             self.logger.info(f"Installed cache '{cache_name}' (expires after {cache_expiry}s)")
@@ -32,13 +56,18 @@ class BaseQuery(ABC):
     @limits(calls=30, period=1)
     def _limited_get(self, 
                      url: str, 
-                     params: Optional[Dict[str, Any]] = None) -> requests.Response:
+                     params: Optional[Dict[str, Any]] = None,
+                     headers: Optional[Dict[str, str]] = None,
+                     timeout: int = 20) -> requests.Response:
         """
         Internal method to perform a GET request with rate limiting.
         """
         full_url = f"{self.base_url}{url}" if not url.startswith("http") else url
         try:
-            response = requests.get(full_url, params=params)
+            merged_headers = self.default_headers.copy()
+            if headers:
+                merged_headers.update(headers)
+            response = self.session.get(full_url, params=params, headers=merged_headers, timeout=timeout)
             response.raise_for_status()
             if getattr(response, "from_cache", False):
                 self.logger.info(f"[CACHE HIT] {response.url}")
