@@ -14,6 +14,22 @@ class BaseQuery(ABC):
     Handles caching, rate limiting, and basic GET requests.
     """
 
+    @staticmethod
+    def _build_default_user_agent() -> str:
+        """
+        Build an identifiable User-Agent required by some public APIs.
+        Users can fully override it with GEORESOLVER_USER_AGENT.
+        """
+        configured_ua = os.getenv("GEORESOLVER_USER_AGENT")
+        if configured_ua:
+            return configured_ua
+
+        contact = os.getenv("GEORESOLVER_USER_AGENT_CONTACT", "").strip()
+        base_ua = "georesolver/0.2 (+https://pypi.org/project/georesolver)"
+        if contact:
+            return f"{base_ua}; contact: {contact}"
+        return base_ua
+
     def __init__(
         self,
         base_url: str,
@@ -28,7 +44,7 @@ class BaseQuery(ABC):
         self.calls, self.period = rate_limit
 
         # A non-default User-Agent is required by some services (e.g., Wikidata/WHG).
-        custom_ua = os.getenv("GEORESOLVER_USER_AGENT", "georesolver/0.2 (+https://pypi.org/project/georesolver)")
+        custom_ua = self._build_default_user_agent()
         self.default_headers = {
             "User-Agent": custom_ua,
             "Accept": "application/json",

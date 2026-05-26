@@ -265,6 +265,21 @@ Each service-specific list should contain valid place type codes or labels expec
 This library queries the Wikidata MediaWiki API via the endpoint:
 `https://www.wikidata.org/w/api.php`
 
+### Request identification (recommended)
+
+Some public APIs (including Wikidata and, in some scenarios, WHG) may reject requests sent with the default Python user agent.
+GeoResolver sends an identifiable `User-Agent` by default, and you can customize it with environment variables:
+
+```bash
+# Full override
+GEORESOLVER_USER_AGENT="georesolver/0.2 (+https://your-project.example; contact: you@example.org)"
+
+# Or append contact info to the default GeoResolver user agent
+GEORESOLVER_USER_AGENT_CONTACT="you@example.org"
+```
+
+For production pipelines, it is recommended to provide a contact email or URL to align with service policies and simplify troubleshooting with providers.
+
 It does not use the SPARQL endpoint (`https://query.wikidata.org/sparql`), as this approach is faster and more reliable for simple place lookups. The library performs entity searches by name and retrieves coordinates, country (P17), and administrative data from the entity information.
 
 **Enhanced in v0.2.0**: WikidataQuery now provides better country and administrative entity data retrieval, with improved matching against the BaseQuery interface for consistency across all services.
