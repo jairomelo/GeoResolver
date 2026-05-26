@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "georesolver"
-version = "0.2.2"
+version = "0.2.3"
 description = "Multi-source place name to coordinates resolver using TGN, WHG, GeoNames, and Wikidata"
 authors = [
   {name="Jairo Antonio Melo Florez", email="jairoantoniomelo@gmail.com"}
@@ -51,7 +51,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/jairomelo/Georesolver"
 Issues = "https://github.com/jairomelo/Georesolver/issues"
-Documentation = "https://jairomelo.com/Georesolver/"
+Documentation = "https://jairomelo.com/GeoResolver/georesolver.html"
 
 [tool.setuptools.package-data]
 "georesolver" = ["data/mappings/places_map.json"]
