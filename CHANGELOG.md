@@ -101,5 +101,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Previous stable release. See git history for details of earlier versions.
 
-[Unreleased]: https://github.com/jairomelo/georesolver/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/jairomelo/georesolver/compare/v0.2.4...HEAD
+[v0.2.4]: https://github.com/jairomelo/georesolver/releases/tag/v0.2.4
 [v0.1.4]: https://github.com/jairomelo/georesolver/releases/tag/v0.1.4
