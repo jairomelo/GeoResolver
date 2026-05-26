@@ -3,7 +3,7 @@
 ![CI](https://github.com/jairomelo/GeoResolver/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/pypi/l/georesolver)
 ![Downloads](https://static.pepy.tech/badge/georesolver)
-[![Documentation](https://img.shields.io/badge/docs-online-blue)](https://jairomelo.com/Georesolver/)
+[![Documentation](https://img.shields.io/badge/docs-online-blue)](http://jairomelo.com/GeoResolver/georesolver.html)
 [![Issues](https://img.shields.io/github/issues/jairomelo/Georesolver)](https://github.com/jairomelo/Georesolver/issues)
 
 
@@ -264,6 +264,21 @@ Each service-specific list should contain valid place type codes or labels expec
 
 This library queries the Wikidata MediaWiki API via the endpoint:
 `https://www.wikidata.org/w/api.php`
+
+### Request identification (recommended)
+
+Some public APIs (including Wikidata and, in some scenarios, WHG) may reject requests sent with the default Python user agent.
+GeoResolver sends an identifiable `User-Agent` by default, and you can customize it with environment variables:
+
+```bash
+# Full override
+GEORESOLVER_USER_AGENT="georesolver/0.2 (+https://your-project.example; contact: you@example.org)"
+
+# Or append contact info to the default GeoResolver user agent
+GEORESOLVER_USER_AGENT_CONTACT="you@example.org"
+```
+
+For production pipelines, it is recommended to provide a contact email or URL to align with service policies and simplify troubleshooting with providers.
 
 It does not use the SPARQL endpoint (`https://query.wikidata.org/sparql`), as this approach is faster and more reliable for simple place lookups. The library performs entity searches by name and retrieves coordinates, country (P17), and administrative data from the entity information.
 

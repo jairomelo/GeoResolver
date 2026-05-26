@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "georesolver"
-version = "0.2.2"
+version = "0.2.4"
 description = "Multi-source place name to coordinates resolver using TGN, WHG, GeoNames, and Wikidata"
 authors = [
   {name="Jairo Antonio Melo Florez", email="jairoantoniomelo@gmail.com"}
 ]
 readme = {file = "README.md", content-type = "text/markdown"}
-license = {text = "GPL-3.0-only"}
+license = "GPL-3.0-only"
 requires-python = ">=3.9"
 dependencies = [
   "SPARQLWrapper~=2.0.0",
@@ -34,7 +34,6 @@ keywords = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Natural Language :: English",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.9",
@@ -51,7 +50,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/jairomelo/Georesolver"
 Issues = "https://github.com/jairomelo/Georesolver/issues"
-Documentation = "https://jairomelo.com/Georesolver/"
+Documentation = "https://jairomelo.com/GeoResolver/georesolver.html"
 
 [tool.setuptools.package-data]
 "georesolver" = ["data/mappings/places_map.json"]
